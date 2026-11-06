@@ -1,0 +1,6 @@
+{
+  "name": "RetainIQ - Professional Summary & Flashcards Generator",
+  "description": "AI-powered executive summaries, structured study guides, and spaced-repetition flashcards for students and working professionals.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
