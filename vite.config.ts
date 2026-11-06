@@ -5,6 +5,8 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    // GitHub Pages hosts this project under /ar-site/.
+    base: '/ar-site/',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
