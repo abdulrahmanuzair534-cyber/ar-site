@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Flashcard, ReviewRating } from '../types/index';
 import { calculateLeitnerUpdate, calculateDeckMastery, shuffleArray } from '../utils/retentionLogic';
+import { recordStudySession } from '../utils/streakService';
 import { speech } from '../utils/speech';
 import {
   Volume2,
@@ -96,6 +97,7 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
         [currentCard.id]: rating,
       }));
 
+      recordStudySession();
       handleNext();
     },
     [currentCard, cards, currentIndex, onUpdateCards, handleNext]

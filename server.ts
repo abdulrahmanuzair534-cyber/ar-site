@@ -329,66 +329,6 @@ ${customFocus ? `Special focus area requested by user: ${customFocus}` : ''}`;
   }
 });
 
-// API endpoint for image-to-text visual extraction (OCR)
-app.post('/api/extract-image', async (req, res) => {
-  try {
-    const { imageBase64, mimeType = 'image/jpeg', mode = 'full-text' } = req.body;
-    if (!imageBase64) {
-      return res.status(400).json({ error: 'No image provided' });
-    }
-
-    const isRealApiKey =
-      process.env.GEMINI_API_KEY &&
-      process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' &&
-      process.env.GEMINI_API_KEY.length > 10;
-
-    if (!ai || !isRealApiKey) {
-      return res.json({ useClientOcr: true });
-    }
-
-    // Clean base64 string if data URL prefix exists
-    const cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/, '');
-
-    const promptText = `You are a high-precision Optical Character Recognition (OCR) engine with 99.9% accuracy.
-Task: Extract and transcribe ALL text from this image with absolute verbatim accuracy.
-Guidelines:
-1. Extract all printed text, handwriting, mathematical equations, numbers, symbols, tables, headings, footnotes, and fine print.
-2. Maintain natural reading order, structural line breaks, and paragraph divisions.
-3. If tabular data is present, format it clearly using Markdown tables.
-4. Do not summarize, correct typos, paraphrase, or omit any words or punctuation.
-5. If text is blurry or handwritten, use contextual deduction to transcribe the exact words intended with maximum fidelity.
-6. Return ONLY the exact extracted text directly. Do not include any meta commentary, preambles, or markdown backticks wrappers like \`\`\`text.`;
-
-    const visionPromise = ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              mimeType,
-              data: cleanBase64,
-            },
-          },
-          {
-            text: promptText,
-          },
-        ],
-      },
-    });
-
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('AI vision inference timeout')), 6000)
-    );
-
-    const response = await Promise.race([visionPromise, timeoutPromise]);
-    const extractedText = response.text || '';
-    return res.json({ text: extractedText, source: 'ai-vision' });
-  } catch (error: any) {
-    console.error('Handled in /api/extract-image:', error?.message || error);
-    return res.json({ useClientOcr: true, error: error?.message || 'Fallback to client neural OCR' });
-  }
-});
-
 // Helper for fallback chat replies when API key is missing or quota is exhausted
 function generateFallbackChatReply(userMessage: string, role = 'tutor', topicContext = ''): string {
   const query = userMessage.toLowerCase();
@@ -399,6 +339,10 @@ function generateFallbackChatReply(userMessage: string, role = 'tutor', topicCon
   
   if (role === 'analyst') {
     return `### 📋 Executive BLUF Analysis\n\n**Bottom Line Up Front**: Success requires focusing on the primary invariant: balance latency against consistency.\n\n**Key Strategic Takeaways**:\n• Prioritize high write-availability where eventual convergence is acceptable.\n• Enforce strict idempotency on all state-mutating transactions.\n• Maintain clear monitoring on quorum reachability.`;
+  }
+
+  if (role === 'document_expert') {
+    return `### 📄 Document & Notes Specialist\n\nI reviewed your text regarding: "${userMessage}".\n\n**Formatting & Structure Recommendations**:\n• Break large text passages into distinct thematic headings.\n• Highlight domain invariants with bold terms for rapid visual scanning.\n• Use the AI Generator to automatically synthesize active-recall flashcards from this document.`;
   }
 
   if (query.includes('mnemonic') || query.includes('remember')) {
@@ -429,8 +373,8 @@ Your mission: Guide students and professionals to deeply understand study materi
 Your mission: Test the user's knowledge with rapid-fire questions, evaluate their answers with constructive feedback, keep track of their recall streak, and provide mnemonics when they struggle.`,
       analyst: `You are the AR Executive Intelligence Analyst.
 Your mission: Provide high-density Bottom Line Up Front (BLUF) summaries, risk matrices, strategic trade-off comparisons, and executive briefing notes. Eliminate filler words.`,
-      ocr_expert: `You are the AR Precision OCR & Document Analysis Specialist.
-Your mission: Help the user analyze, format, verify, clean up, and translate text extracted from textbook scans, research papers, and handwritten notes.`
+      document_expert: `You are the AR Precision Document & Text Specialist.
+Your mission: Help the user analyze, format, verify, clean up, and structure text extracted from documents, research papers, and study notes.`
     };
 
     const systemInstruction = `${roleInstructions[role] || roleInstructions.tutor}

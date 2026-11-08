@@ -9,7 +9,7 @@ import { FlashcardStudyMode } from './components/FlashcardStudyMode';
 import { QuizMode } from './components/QuizMode';
 import { DeckList } from './components/DeckList';
 import { ExportModal } from './components/ExportModal';
-import { ImageToTextGenerator } from './components/ImageToTextGenerator';
+import { DocumentTextExtractor } from './components/DocumentTextExtractor';
 import { GeminiChatbot } from './components/GeminiChatbot';
 
 const LOCAL_STORAGE_KEY = 'arsite_study_decks_v1';
@@ -38,12 +38,12 @@ export default function App() {
     return SAMPLE_DECKS[0]?.id || '';
   });
 
-  const [currentView, setCurrentView] = useState<'overview' | 'generator' | 'ocr' | 'summary' | 'study' | 'quiz' | 'decks'>(() => {
+  const [currentView, setCurrentView] = useState<'overview' | 'generator' | 'extractor' | 'summary' | 'study' | 'quiz' | 'decks' | 'ocr'>(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const autostart = urlParams.get('autostart');
     const view = urlParams.get('view');
-    if (view && ['overview', 'generator', 'ocr', 'summary', 'study', 'quiz', 'decks'].includes(view)) {
-      return view as any;
+    if (view && ['overview', 'generator', 'extractor', 'ocr', 'summary', 'study', 'quiz', 'decks'].includes(view)) {
+      return (view === 'ocr' ? 'extractor' : view) as any;
     }
     if (autostart === '1') {
       return 'summary';
@@ -51,9 +51,9 @@ export default function App() {
     return 'overview';
   });
 
-  const [initialOcrText, setInitialOcrText] = useState<string>('');
-  const [initialOcrSource, setInitialOcrSource] = useState<{ title?: string; author?: string; citation?: string } | undefined>(undefined);
-  const [initialOcrImageUrl, setInitialOcrImageUrl] = useState<string>('');
+  const [initialExtractedText, setInitialExtractedText] = useState<string>('');
+  const [initialExtractedSource, setInitialExtractedSource] = useState<{ title?: string; author?: string; citation?: string } | undefined>(undefined);
+  const [initialExtractedImageUrl, setInitialExtractedImageUrl] = useState<string>('');
 
   const [isDark, setIsDark] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
@@ -153,19 +153,19 @@ export default function App() {
               setCurrentDeckId(deckId);
               setCurrentView('summary');
             }}
-            initialContent={initialOcrText}
-            initialSource={initialOcrSource}
-            initialImageUrl={initialOcrImageUrl}
-            onOpenOcr={() => setCurrentView('ocr')}
+            initialContent={initialExtractedText}
+            initialSource={initialExtractedSource}
+            initialImageUrl={initialExtractedImageUrl}
+            onOpenExtractor={() => setCurrentView('extractor')}
+            onOpenOcr={() => setCurrentView('extractor')}
           />
         )}
 
-        {currentView === 'ocr' && (
-          <ImageToTextGenerator
-            onSendToGenerator={(text, sourceInfo, imageUrl) => {
-              setInitialOcrText(text);
-              setInitialOcrSource(sourceInfo);
-              setInitialOcrImageUrl(imageUrl || '');
+        {(currentView === 'extractor' || currentView === 'ocr') && (
+          <DocumentTextExtractor
+            onSendToGenerator={(text, sourceInfo) => {
+              setInitialExtractedText(text);
+              setInitialExtractedSource(sourceInfo);
               setCurrentView('generator');
             }}
           />
@@ -256,10 +256,10 @@ export default function App() {
               AI Generator
             </button>
             <button
-              onClick={() => setCurrentView('ocr')}
+              onClick={() => setCurrentView('extractor')}
               className="hover:text-slate-900 dark:hover:text-white transition-colors"
             >
-              Image to Text (OCR)
+              Text Extractor (Files)
             </button>
             <button
               onClick={() => setCurrentView('decks')}

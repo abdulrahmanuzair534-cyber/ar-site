@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { SummaryDocument } from '../types/index';
 
-export type ChatRole = 'tutor' | 'quizzer' | 'analyst' | 'ocr_expert';
+export type ChatRole = 'tutor' | 'quizzer' | 'analyst' | 'document_expert';
 
 interface ChatMessage {
   id: string;
@@ -44,8 +44,8 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({ activeDeck }) => {
         return `⚡ **Ready for Active Recall!**\n\nI'm your AR Rapid Quizzer. I will test your retention of **"${activeDeck?.title || 'your study deck'}"** with high-yield questions. Ready for question 1?`;
       case 'analyst':
         return `📋 **Executive Intelligence Briefing**\n\nI'm your Executive Analyst. Ask me for Bottom Line Up Front (BLUF) takeaways, strategic risk trade-offs, or executive memos.`;
-      case 'ocr_expert':
-        return `🔍 **OCR & Text Inspector**\n\nI specialize in analyzing, structuring, and verifying text extracted from your images, textbooks, or whiteboard scans. How can I assist?`;
+      case 'document_expert':
+        return `📄 **Document & Text Specialist**\n\nI specialize in analyzing, structuring, formatting, and summarizing text extracted from documents, articles, and lecture notes. How can I assist?`;
       default:
         return `🎓 **Welcome to your Socratic Study Session**\n\nI'm grounded in **"${activeDeck?.title || 'General Studies'}"**. Ask me to explain concepts from first principles, generate mnemonics, or walk through complex equations step-by-step.`;
     }
@@ -111,8 +111,8 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({ activeDeck }) => {
       return `📋 **Executive BLUF Analysis — ${topic}**\n\n**Bottom Line Up Front**: Successful implementation requires strict adherence to core invariants and continuous risk monitoring.\n\n**Key Takeaways**:\n• Prioritize high-yield mechanisms that yield direct measurable outcomes.\n• Mitigate edge-case failure modes through redundancy and idempotent validation.\n• Reference: ${activeDeck?.executiveBrief ? activeDeck.executiveBrief.slice(0, 160) + '...' : 'Focus on primary operating constraints.'}`;
     }
 
-    if (currentRole === 'ocr_expert') {
-      return `🔍 **OCR & Text Inspector**\n\nI reviewed your query regarding: *"${userMessage}"*.\n\n• **Fidelity Check**: Optical Character Recognition maintains highest accuracy when high contrast and minimum 300 DPI resolution are present.\n• **Formatting Tip**: When copying extracted tables or mathematical expressions, preserve monospace indentation or Markdown pipe tables for zero data corruption.\n\nWould you like me to structure any extracted text into flashcards?`;
+    if (currentRole === 'document_expert') {
+      return `📄 **Document & Text Specialist**\n\nI reviewed your query regarding: *"${userMessage}"*.\n\n• **Structuring**: You can format notes with bullet points, numbered lists, or bold key terminology.\n• **Synthesis Tip**: Extracting concise summaries from uploaded documents enables the highest active recall yield.\n\nWould you like me to suggest flashcard questions based on this text?`;
     }
 
     if (q.includes('mnemonic') || q.includes('remember') || q.includes('hook')) {

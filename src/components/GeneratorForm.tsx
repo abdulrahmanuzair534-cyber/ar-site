@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { TargetAudience, SummaryDepth, SummaryDocument, SourceReference } from '../types/index';
 import { generateClientSynthesis } from '../utils/clientSynthesis';
+import { recordStudySession } from '../utils/streakService';
 import {
   Sparkles,
   FileText,
@@ -20,6 +21,7 @@ interface GeneratorFormProps {
   initialContent?: string;
   initialSource?: { title?: string; author?: string; citation?: string; url?: string };
   initialImageUrl?: string;
+  onOpenExtractor?: () => void;
   onOpenOcr?: () => void;
 }
 
@@ -75,6 +77,7 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
   initialContent = '',
   initialSource,
   initialImageUrl = '',
+  onOpenExtractor,
   onOpenOcr,
 }) => {
   const [content, setContent] = useState(initialContent);
@@ -286,6 +289,7 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
         }),
       };
 
+      recordStudySession();
       onGenerated(enrichedDoc);
     } catch (err: any) {
       console.error('Generation error:', err);
@@ -299,6 +303,7 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
           sourceMetadata: sourceTitle.trim() ? { title: sourceTitle.trim() } : undefined,
           imageUrl: attachedImageUrl || undefined,
         });
+        recordStudySession();
         onGenerated(resilientDoc);
       } catch (fallbackErr) {
         setError('Please check your text input and try again.');
@@ -355,14 +360,14 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
             </label>
 
             <div className="flex items-center gap-2.5">
-              {onOpenOcr && (
+              {(onOpenExtractor || onOpenOcr) && (
                 <button
                   type="button"
-                  onClick={onOpenOcr}
+                  onClick={onOpenExtractor || onOpenOcr}
                   className="px-2.5 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 rounded-lg flex items-center gap-1.5 transition-colors"
                 >
-                  <Camera className="w-3.5 h-3.5" />
-                  <span>Extract from Image (OCR)</span>
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>Extract from Files</span>
                 </button>
               )}
 

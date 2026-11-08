@@ -1,9 +1,10 @@
-import React from 'react';
-import { Sun, Moon, Sparkles, BookOpen, Layers, HelpCircle, Camera, Library, Building2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Sun, Moon, Sparkles, Flame } from 'lucide-react';
+import { getStudyStreak, STREAK_UPDATED_EVENT } from '../utils/streakService';
 
 interface NavbarProps {
-  currentView: 'overview' | 'generator' | 'ocr' | 'summary' | 'study' | 'quiz' | 'decks';
-  onNavigate: (view: 'overview' | 'generator' | 'ocr' | 'summary' | 'study' | 'quiz' | 'decks') => void;
+  currentView: 'overview' | 'generator' | 'extractor' | 'summary' | 'study' | 'quiz' | 'decks' | 'ocr';
+  onNavigate: (view: 'overview' | 'generator' | 'extractor' | 'summary' | 'study' | 'quiz' | 'decks') => void;
   isDark: boolean;
   onToggleTheme: () => void;
 }
@@ -14,6 +15,21 @@ export const Navbar: React.FC<NavbarProps> = ({
   isDark,
   onToggleTheme,
 }) => {
+  const [streak, setStreak] = useState<number>(() => getStudyStreak().currentStreak);
+
+  useEffect(() => {
+    const updateStreak = () => {
+      const data = getStudyStreak();
+      setStreak(data.currentStreak);
+    };
+
+    window.addEventListener(STREAK_UPDATED_EVENT, updateStreak);
+    window.addEventListener('storage', updateStreak);
+    return () => {
+      window.removeEventListener(STREAK_UPDATED_EVENT, updateStreak);
+      window.removeEventListener('storage', updateStreak);
+    };
+  }, []);
   return (
     <header className="sticky top-0 z-50 w-full border-b border-slate-200/80 dark:border-slate-800/80 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md transition-colors">
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-6 px-6 py-3.5">
@@ -63,14 +79,14 @@ export const Navbar: React.FC<NavbarProps> = ({
             Quiz Recall
           </button>
           <button
-            onClick={() => onNavigate('ocr')}
+            onClick={() => onNavigate('extractor')}
             className={`whitespace-nowrap shrink-0 transition-colors py-1 cursor-pointer ${
-              currentView === 'ocr'
+              currentView === 'extractor' || currentView === 'ocr'
                 ? 'text-indigo-600 dark:text-indigo-400 font-semibold border-b-2 border-indigo-600 dark:border-indigo-400'
                 : 'hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            Image to Text
+            Text Extractor
           </button>
           <button
             onClick={() => onNavigate('generator')}
@@ -104,8 +120,23 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
         </nav>
 
-        {/* Zone 3: 1 primary action + theme toggle */}
-        <div className="flex items-center gap-3 shrink-0">
+        {/* Zone 3: Streak Badge + Theme Toggle + Primary Action */}
+        <div className="flex items-center gap-2.5 shrink-0">
+          {/* Study streak counter */}
+          <div
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/40 dark:to-orange-950/40 border border-amber-200 dark:border-amber-800/60 shadow-2xs select-none transition-all hover:scale-105"
+            title={`Active Study Streak: ${streak} consecutive day${streak === 1 ? '' : 's'} of learning`}
+            aria-label={`Study Streak: ${streak} days`}
+          >
+            <Flame className="w-4 h-4 text-orange-500 fill-amber-500 animate-pulse" />
+            <span className="font-mono text-xs font-bold text-amber-700 dark:text-amber-300">
+              {streak}
+            </span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600/80 dark:text-amber-400/80 hidden sm:inline">
+              {streak === 1 ? 'day' : 'days'}
+            </span>
+          </div>
+
           <button
             onClick={onToggleTheme}
             aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Flashcard, QuizQuestion } from '../types/index';
 import { generateQuizFromFlashcards } from '../utils/retentionLogic';
+import { recordStudySession } from '../utils/streakService';
 import { CheckCircle2, XCircle, HelpCircle, RotateCcw, ArrowRight, Award, ChevronLeft } from 'lucide-react';
 
 interface QuizModeProps {
@@ -77,6 +78,7 @@ export const QuizMode: React.FC<QuizModeProps> = ({
       setSelectedOption(null);
       setIsAnswered(false);
     } else {
+      recordStudySession();
       setIsCompleted(true);
     }
   };
