@@ -107,15 +107,12 @@ export function fileToBase64(file: File | Blob): Promise<string> {
 }
 
 /**
- * Converts any image format (SVG, WebP, etc.) into a clean 2D raster PNG for Tesseract.
+/**
+ * Preprocesses and converts any image into an enhanced high-DPI raster PNG for maximum OCR fidelity.
+ * Applies high-resolution upscaling and contrast normalization so characters are crisp.
  */
 async function ensureRasterImage(imageUri: string): Promise<string> {
   if (typeof document === 'undefined') return imageUri;
-
-  // If it's already a clean JPEG or PNG data URL, return as-is
-  if (imageUri.startsWith('data:image/png') || imageUri.startsWith('data:image/jpeg')) {
-    return imageUri;
-  }
 
   return new Promise((resolve) => {
     const img = new Image();
@@ -123,13 +120,44 @@ async function ensureRasterImage(imageUri: string): Promise<string> {
     img.onload = () => {
       try {
         const canvas = document.createElement('canvas');
-        canvas.width = Math.max(800, img.naturalWidth || img.width || 800);
-        canvas.height = Math.max(400, img.naturalHeight || img.height || 400);
+        // Ensure at least 1600px width for optimal OCR optical character resolution
+        const baseWidth = img.naturalWidth || img.width || 1200;
+        const baseHeight = img.naturalHeight || img.height || 800;
+        const scale = Math.max(1, Math.min(2.5, 1800 / baseWidth));
+        
+        canvas.width = Math.round(baseWidth * scale);
+        canvas.height = Math.round(baseHeight * scale);
+        
         const ctx = canvas.getContext('2d');
         if (ctx) {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          
+          // Image data contrast normalization for clean OCR
+          try {
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imgData.data;
+            for (let i = 0; i < data.length; i += 4) {
+              const r = data[i];
+              const g = data[i + 1];
+              const b = data[i + 2];
+              // Grayscale luminance
+              const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+              // Contrast enhancement curve (stretch dynamic range)
+              const factor = 1.25;
+              const enhanced = Math.min(255, Math.max(0, factor * (gray - 128) + 128));
+              data[i] = enhanced;
+              data[i + 1] = enhanced;
+              data[i + 2] = enhanced;
+            }
+            ctx.putImageData(imgData, 0, 0);
+          } catch (e) {
+            // Ignore cross-origin image data reading fallback
+          }
+
           resolve(canvas.toDataURL('image/png'));
           return;
         }

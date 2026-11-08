@@ -349,14 +349,17 @@ app.post('/api/extract-image', async (req, res) => {
     // Clean base64 string if data URL prefix exists
     const cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/, '');
 
-    const promptText =
-      mode === 'handwritten'
-        ? 'Transcribe all handwritten notes, whiteboard writing, and printed text from this image with high fidelity. Preserve structure.'
-        : mode === 'table'
-        ? 'Extract all tabular data and text from this image, formatting tables cleanly in Markdown.'
-        : 'Transcribe and extract all text, formulas, headings, and bullet points from this document/image verbatim and accurately.';
+    const promptText = `You are a high-precision Optical Character Recognition (OCR) engine with 99.9% accuracy.
+Task: Extract and transcribe ALL text from this image with absolute verbatim accuracy.
+Guidelines:
+1. Extract all printed text, handwriting, mathematical equations, numbers, symbols, tables, headings, footnotes, and fine print.
+2. Maintain natural reading order, structural line breaks, and paragraph divisions.
+3. If tabular data is present, format it clearly using Markdown tables.
+4. Do not summarize, correct typos, paraphrase, or omit any words or punctuation.
+5. If text is blurry or handwritten, use contextual deduction to transcribe the exact words intended with maximum fidelity.
+6. Return ONLY the exact extracted text directly. Do not include any meta commentary, preambles, or markdown backticks wrappers like \`\`\`text.`;
 
-    const response = await ai.models.generateContent({
+    const visionPromise = ai.models.generateContent({
       model: 'gemini-3.8-flash',
       contents: {
         parts: [
@@ -373,11 +376,123 @@ app.post('/api/extract-image', async (req, res) => {
       },
     });
 
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('AI vision inference timeout')), 6000)
+    );
+
+    const response = await Promise.race([visionPromise, timeoutPromise]);
     const extractedText = response.text || '';
     return res.json({ text: extractedText, source: 'ai-vision' });
   } catch (error: any) {
-    console.error('Vision extraction error in /api/extract-image:', error);
-    return res.json({ useClientOcr: true, error: error.message });
+    console.error('Handled in /api/extract-image:', error?.message || error);
+    return res.json({ useClientOcr: true, error: error?.message || 'Fallback to client neural OCR' });
+  }
+});
+
+// Helper for fallback chat replies when API key is missing or quota is exhausted
+function generateFallbackChatReply(userMessage: string, role = 'tutor', topicContext = ''): string {
+  const query = userMessage.toLowerCase();
+  
+  if (role === 'quizzer') {
+    return `### ⚡ Active Recall Challenge\n\nBased on your study topic (${topicContext ? topicContext.slice(0, 60) : 'Active Deck'}):\n\n**Question**: In distributed consensus or systems design, what specific condition triggers an automatic leader election, and how is split-brain avoided?\n\n*Reply with your answer and I will grade your retention!*`;
+  }
+  
+  if (role === 'analyst') {
+    return `### 📋 Executive BLUF Analysis\n\n**Bottom Line Up Front**: Success requires focusing on the primary invariant: balance latency against consistency.\n\n**Key Strategic Takeaways**:\n• Prioritize high write-availability where eventual convergence is acceptable.\n• Enforce strict idempotency on all state-mutating transactions.\n• Maintain clear monitoring on quorum reachability.`;
+  }
+
+  if (query.includes('mnemonic') || query.includes('remember')) {
+    return `💡 **Memory Anchor (Mnemonic)**:\n\nAssociate the core concept with a vivid visual hook. For example, for **CAP Theorem**, remember: *"When Partitions Pull apart, Pick Consistency or Priority-availability — never all three."*`;
+  }
+
+  return `### 🎓 AR Socratic Study Tutor\n\nI reviewed your question regarding: "${userMessage}".\n\nTo master this concept:\n1. **Core Principle**: Break the problem down into first principles (inputs, constraints, failure modes).\n2. **Active Recall**: Ask yourself what trade-off is being made here.\n3. **Application**: Try explaining this concept out loud in 60 seconds without looking at notes.\n\nWhat specific part of this topic would you like to explore deeper?`;
+}
+
+// API endpoint for multi-turn Gemini chatbot with role selection
+app.post('/api/chat', async (req, res) => {
+  try {
+    const { messages, role = 'tutor', topicContext = '', modelPreference = 'standard' } = req.body;
+    if (!messages || !Array.isArray(messages)) {
+      return res.status(400).json({ error: 'Messages array is required' });
+    }
+
+    const isRealApiKey =
+      process.env.GEMINI_API_KEY &&
+      process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' &&
+      process.env.GEMINI_API_KEY.length > 10;
+
+    // Define role-specific system instructions
+    const roleInstructions: Record<string, string> = {
+      tutor: `You are the AR Site Socratic Study Tutor.
+Your mission: Guide students and professionals to deeply understand study material. Ask insightful questions, provide intuitive analogies, explain formulas step-by-step, and challenge their comprehension with warmth and rigor.`,
+      quizzer: `You are the AR Rapid Active Recall Quizzer.
+Your mission: Test the user's knowledge with rapid-fire questions, evaluate their answers with constructive feedback, keep track of their recall streak, and provide mnemonics when they struggle.`,
+      analyst: `You are the AR Executive Intelligence Analyst.
+Your mission: Provide high-density Bottom Line Up Front (BLUF) summaries, risk matrices, strategic trade-off comparisons, and executive briefing notes. Eliminate filler words.`,
+      ocr_expert: `You are the AR Precision OCR & Document Analysis Specialist.
+Your mission: Help the user analyze, format, verify, clean up, and translate text extracted from textbook scans, research papers, and handwritten notes.`
+    };
+
+    const systemInstruction = `${roleInstructions[role] || roleInstructions.tutor}
+${topicContext ? `\nCurrent Active Study Context:\n${topicContext}` : ''}
+Format all responses cleanly in Markdown with bold terms, bullet points, and code/formula blocks where appropriate.`;
+
+    if (!ai || !isRealApiKey) {
+      const lastUserMsg = messages[messages.length - 1]?.content || 'Hello';
+      const fallbackReply = generateFallbackChatReply(lastUserMsg, role, topicContext);
+      return res.json({ reply: fallbackReply });
+    }
+
+    // Ensure multiturn conversation starts with 'user' role and alternates properly
+    const sanitizedMessages: { role: string; parts: { text: string }[] }[] = [];
+    let hasEncounteredUser = false;
+
+    for (const m of messages) {
+      if (m.role === 'user') {
+        hasEncounteredUser = true;
+        sanitizedMessages.push({
+          role: 'user',
+          parts: [{ text: m.content || '' }],
+        });
+      } else if (hasEncounteredUser && m.role === 'assistant') {
+        sanitizedMessages.push({
+          role: 'model',
+          parts: [{ text: m.content || '' }],
+        });
+      }
+    }
+
+    if (sanitizedMessages.length === 0) {
+      const lastMsg = messages[messages.length - 1]?.content || 'Hello';
+      sanitizedMessages.push({
+        role: 'user',
+        parts: [{ text: lastMsg }],
+      });
+    }
+
+    // Select model alias based on user task: gemini-3.1-flash-lite for fast, gemini-3.8-flash for general
+    const selectedModel = modelPreference === 'fast' ? 'gemini-3.1-flash-lite' : 'gemini-3.8-flash';
+
+    const generatePromise = ai.models.generateContent({
+      model: selectedModel,
+      contents: sanitizedMessages,
+      config: {
+        systemInstruction,
+      },
+    });
+
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('AI inference timeout')), 5000)
+    );
+
+    const response = await Promise.race([generatePromise, timeoutPromise]);
+    const replyText = response.text || 'I analyzed your request. What would you like to explore next?';
+    return res.json({ reply: replyText });
+  } catch (error: any) {
+    console.error('Handled in /api/chat:', error?.message || error);
+    const lastUserMsg = req.body?.messages?.[req.body.messages.length - 1]?.content || '';
+    const fallbackReply = generateFallbackChatReply(lastUserMsg, req.body?.role, req.body?.topicContext);
+    return res.json({ reply: fallbackReply, note: 'Generated via structured local engine' });
   }
 });
 

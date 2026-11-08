@@ -10,6 +10,7 @@ import { QuizMode } from './components/QuizMode';
 import { DeckList } from './components/DeckList';
 import { ExportModal } from './components/ExportModal';
 import { ImageToTextGenerator } from './components/ImageToTextGenerator';
+import { GeminiChatbot } from './components/GeminiChatbot';
 
 const LOCAL_STORAGE_KEY = 'arsite_study_decks_v1';
 const THEME_STORAGE_KEY = 'arsite_theme_mode';
@@ -219,6 +220,9 @@ export default function App() {
           onClose={() => setIsExportOpen(false)}
         />
       )}
+
+      {/* Floating Gemini AI Study Assistant */}
+      <GeminiChatbot activeDeck={activeDeck} />
 
       {/* Corporate Enterprise Footer */}
       <footer className="border-t border-slate-200 dark:border-slate-800 py-10 px-6 text-xs text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-950">
