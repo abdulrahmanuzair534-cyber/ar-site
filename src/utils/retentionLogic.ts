@@ -133,26 +133,37 @@ export function generateQuizFromFlashcards(
 /**
  * Generates Anki-compatible TSV export string.
  */
+/**
+ * Generates Anki-compatible TSV export string with optional images and sources.
+ */
 export function exportToAnkiTSV(flashcards: Flashcard[]): string {
   // Anki TSV format: Front \t Back \t Tags
   return flashcards
     .map((card) => {
-      const cleanFront = card.question.replace(/\t/g, ' ').replace(/\n/g, '<br>');
-      const cleanBack = (card.answer + (card.mnemonic ? `<br><small><i>Memory Anchor: ${card.mnemonic}</i></small>` : ''))
-        .replace(/\t/g, ' ')
-        .replace(/\n/g, '<br>');
-      const tags = (card.category || 'RetainIQ').replace(/\s+/g, '_');
+      let cleanFront = card.question.replace(/\t/g, ' ').replace(/\n/g, '<br>');
+      if (card.imageUrl) {
+        cleanFront = `<img src="${card.imageUrl}" style="max-height:200px;display:block;margin-bottom:8px;" /><br>` + cleanFront;
+      }
+      let cleanBack = card.answer;
+      if (card.mnemonic) {
+        cleanBack += `<br><small><i>Memory Anchor: ${card.mnemonic}</i></small>`;
+      }
+      if (card.sourceReference) {
+        cleanBack += `<br><small style="color:#64748b;">Source: ${card.sourceReference}</small>`;
+      }
+      cleanBack = cleanBack.replace(/\t/g, ' ').replace(/\n/g, '<br>');
+      const tags = (card.category || 'AR_Site').replace(/\s+/g, '_');
       return `${cleanFront}\t${cleanBack}\t${tags}`;
     })
     .join('\n');
 }
 
 /**
- * Generates standard CSV export.
+ * Generates standard CSV export including image URL and source citations.
  */
 export function exportToCSV(flashcards: Flashcard[]): string {
-  const escapeCSV = (str: string) => `"${str.replace(/"/g, '""')}"`;
-  const header = ['Question', 'Answer', 'Memory Anchor', 'Category', 'Difficulty', 'Leitner Box'].join(',');
+  const escapeCSV = (str: string) => `"${(str || '').replace(/"/g, '""')}"`;
+  const header = ['Question', 'Answer', 'Memory Anchor', 'Category', 'Difficulty', 'Leitner Box', 'Source', 'Image URL'].join(',');
   const rows = flashcards.map((c) =>
     [
       escapeCSV(c.question),
@@ -161,19 +172,33 @@ export function exportToCSV(flashcards: Flashcard[]): string {
       escapeCSV(c.category || ''),
       escapeCSV(c.difficulty || 'medium'),
       c.box || 1,
+      escapeCSV(c.sourceReference || ''),
+      escapeCSV(c.imageUrl || ''),
     ].join(',')
   );
   return [header, ...rows].join('\n');
 }
 
 /**
- * Formats a summary document into structured Markdown for export/copying.
+ * Formats a summary document into structured Markdown for export/copying, including sources.
  */
 export function exportToMarkdown(doc: SummaryDocument): string {
   const parts: string[] = [];
 
   parts.push(`# ${doc.title}`);
   parts.push(`*Created: ${new Date(doc.createdAt).toLocaleDateString()} · Target: ${doc.targetAudience} · Reading time: ~${doc.readingTimeMinutes} min*\n`);
+
+  if (doc.sources && doc.sources.length > 0) {
+    parts.push(`## Sources & References`);
+    doc.sources.forEach((s) => {
+      let line = `- **${s.title}**`;
+      if (s.author) line += ` by ${s.author}`;
+      if (s.citation) line += ` (${s.citation})`;
+      if (s.url) line += ` [Link](${s.url})`;
+      parts.push(line);
+    });
+    parts.push('');
+  }
 
   parts.push(`## Executive Brief`);
   parts.push(doc.executiveBrief + '\n');
@@ -215,6 +240,12 @@ export function exportToMarkdown(doc: SummaryDocument): string {
       parts.push(`*A:* ${f.answer}`);
       if (f.mnemonic) {
         parts.push(`*Memory Anchor:* ${f.mnemonic}`);
+      }
+      if (f.sourceReference) {
+        parts.push(`*Source:* ${f.sourceReference}`);
+      }
+      if (f.imageUrl) {
+        parts.push(`*Image Diagram:* ${f.imageUrl}`);
       }
       parts.push('');
     });

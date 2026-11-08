@@ -1,6 +1,15 @@
 export type TargetAudience = 'academic' | 'executive' | 'technical' | 'medical';
 export type SummaryDepth = 'overview' | 'standard' | 'deep';
 
+export interface SourceReference {
+  id: string;
+  title: string;
+  url?: string;
+  author?: string;
+  citation?: string; // e.g. "Page 142-145, Chapter 4"
+  type?: 'book' | 'article' | 'paper' | 'website' | 'lecture' | 'scan';
+}
+
 export interface Flashcard {
   id: string;
   question: string;
@@ -9,6 +18,9 @@ export interface Flashcard {
   category: string;
   difficulty: 'easy' | 'medium' | 'hard';
   contextQuote?: string;
+  imageUrl?: string;
+  imageCaption?: string;
+  sourceReference?: string;
   // Leitner spaced repetition box (1 to 5)
   box: number;
   nextReviewDate: string; // ISO string
@@ -42,6 +54,8 @@ export interface SummaryDocument {
   sourceWordCount: number;
   readingTimeMinutes: number;
   tags: string[];
+  sources?: SourceReference[];
+  coverImageUrl?: string;
 }
 
 export type ReviewRating = 'again' | 'hard' | 'good' | 'easy';
@@ -62,4 +76,19 @@ export interface MatchPair {
   id: string;
   term: string;
   definition: string;
+}
+
+export interface NotebookNote {
+  id: string;
+  title: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface GroundedChatMessage {
+  id: string;
+  sender: 'user' | 'assistant';
+  text: string;
+  citations?: { sourceId?: string; title: string; quote?: string }[];
+  timestamp: string;
 }

@@ -13,6 +13,12 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 
+import headquartersImg from '../assets/images/ar_site_headquarters_clean_1793931417697.jpg';
+import datacenterImg from '../assets/images/ar_ai_neural_datacenter_1793930719778.jpg';
+import researchLabImg from '../assets/images/ar_innovation_research_lab_1793930719941.jpg';
+import boardroomImg from '../assets/images/ar_global_summit_boardroom_1793930719705.jpg';
+import founderImg from '../assets/images/founder_abdul_rahman.jpg';
+
 interface EnterpriseOverviewProps {
   onLaunchGenerator: () => void;
   onExploreDecks: () => void;
@@ -71,7 +77,7 @@ export const EnterpriseOverview: React.FC<EnterpriseOverviewProps> = ({
           {/* Featured Enterprise Campus Showcase Banner */}
           <div className="mt-14 rounded-2xl overflow-hidden border border-slate-200/80 dark:border-slate-800 shadow-xl relative group">
             <img
-              src="/src/assets/images/ar_site_headquarters_clean_1793931417697.jpg"
+              src={headquartersImg}
               alt="AR Site Global World Headquarters Campus"
               className="w-full h-[320px] sm:h-[440px] lg:h-[500px] object-cover transition-transform duration-700 group-hover:scale-[1.01]"
               referrerPolicy="no-referrer"
@@ -166,7 +172,7 @@ export const EnterpriseOverview: React.FC<EnterpriseOverviewProps> = ({
                 <div className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-indigo-500 via-blue-600 to-indigo-800 opacity-30 group-hover:opacity-60 blur-lg transition-opacity duration-500" />
                 <div className="relative rounded-2xl overflow-hidden border-2 border-slate-200 dark:border-slate-700 w-[280px] sm:w-[320px] aspect-square shadow-2xl bg-white dark:bg-slate-800">
                   <img
-                    src="/assets/aistudio/photo_6240077634570227765_y_030423ca.jpg"
+                    src={founderImg}
                     alt="Abdul Rahman - Founder & Chief Architect, AR Site"
                     className="w-full h-full object-cover object-top"
                     referrerPolicy="no-referrer"
@@ -234,7 +240,7 @@ export const EnterpriseOverview: React.FC<EnterpriseOverviewProps> = ({
             <div>
               <div className="relative h-48 overflow-hidden">
                 <img
-                  src="/src/assets/images/ar_ai_neural_datacenter_1793930719778.jpg"
+                  src={datacenterImg}
                   alt="AR Site Enterprise Neural Supercomputing Datacenter"
                   className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                   referrerPolicy="no-referrer"
@@ -263,7 +269,7 @@ export const EnterpriseOverview: React.FC<EnterpriseOverviewProps> = ({
             <div>
               <div className="relative h-48 overflow-hidden">
                 <img
-                  src="/src/assets/images/ar_innovation_research_lab_1793930719941.jpg"
+                  src={researchLabImg}
                   alt="AR Site Cognitive Learning Science Laboratory"
                   className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                   referrerPolicy="no-referrer"
@@ -292,7 +298,7 @@ export const EnterpriseOverview: React.FC<EnterpriseOverviewProps> = ({
             <div>
               <div className="relative h-48 overflow-hidden">
                 <img
-                  src="/src/assets/images/ar_global_summit_boardroom_1793930719705.jpg"
+                  src={boardroomImg}
                   alt="AR Site Global Leadership Summit Boardroom"
                   className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                   referrerPolicy="no-referrer"

@@ -1,31 +1,69 @@
-import React, { useState } from 'react';
-import { TargetAudience, SummaryDepth, SummaryDocument } from '../types/index';
-import { Sparkles, FileText, Upload, RefreshCw, BookOpen, Layers, CheckCircle2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { TargetAudience, SummaryDepth, SummaryDocument, SourceReference } from '../types/index';
+import {
+  Sparkles,
+  FileText,
+  Upload,
+  RefreshCw,
+  BookOpen,
+  Camera,
+  Image as ImageIcon,
+  Link as LinkIcon,
+  X,
+  Plus,
+} from 'lucide-react';
 
 interface GeneratorFormProps {
   onGenerated: (doc: SummaryDocument) => void;
   onSelectSampleDeck: (deckId: string) => void;
+  initialContent?: string;
+  initialSource?: { title?: string; author?: string; citation?: string; url?: string };
+  initialImageUrl?: string;
+  onOpenOcr?: () => void;
 }
 
 const PRESET_SNIPPETS = [
   {
     label: 'Distributed Systems',
     audience: 'technical' as TargetAudience,
+    source: {
+      title: 'Designing Data-Intensive Applications',
+      author: 'Martin Kleppmann',
+      citation: 'Chapters 7–9 (Consensus & CAP)',
+      url: 'https://dataintensive.net',
+    },
     text: `Distributed systems require balancing consistency, availability, and partition tolerance as formulated by Eric Brewer's CAP theorem. In any asynchronous network subject to packet loss and latency spikes, network partitions are an inevitability. Consequently, system architects must deliberately choose whether a partition event forces the system to prioritize Consistency (CP)—rejecting writes or stalling reads until consensus is verified—or Availability (AP)—serving potentially stale reads and accepting concurrent writes that must later be merged via Conflict-Free Replicated Data Types (CRDTs) or Last-Write-Wins. Daniel Abadi's PACELC theorem extends this: even when the network is operating normally (Else), a system must continually trade off latency (L) against consistency (C). Furthermore, consensus algorithms such as Raft and Multi-Paxos establish authoritative leader terms through majority quorums (Q = floor(N/2) + 1). In production distributed transactions, Two-Phase Commit (2PC) guarantees serializability across heterogeneous databases but introduces a catastrophic blocking vulnerability if the transaction coordinator fails mid-prepare. For this reason, modern architectures prefer asynchronous event choreography backed by idempotent message consumers and dead-letter queues.`,
   },
   {
     label: 'Corporate Valuation',
     audience: 'executive' as TargetAudience,
+    source: {
+      title: 'Investment Valuation (3rd Edition)',
+      author: 'Prof. Aswath Damodaran',
+      citation: 'NYU Stern Corporate Finance',
+      url: 'https://pages.stern.nyu.edu/~adamodar/',
+    },
     text: `Enterprise Valuation forms the bedrock of strategic M&A and capital allocation. Enterprise Value (EV) measures the entire economic operating value of an enterprise regardless of its financing structure, defined mathematically as Market Capitalization plus Total Debt, Preferred Equity, and Minority Interest, minus unrestricted Cash & Cash Equivalents. Discounted Cash Flow (DCF) models project Unlevered Free Cash Flows (UFCF)—cash generated purely from operations after capital expenditures and changes in net working capital, independent of interest expense—and discount them back to present value using the Weighted Average Cost of Capital (WACC). Because terminal value frequently accounts for 65% to 80% of a company's calculated DCF value, practitioners cross-validate perpetual growth assumptions (the Gordon Growth Model, capped at long-term GDP rates of 2-3%) against exit EBITDA multiple benchmarks. In buy-side due diligence, a Quality of Earnings (QoE) audit is paramount to normalize reported EBITDA by stripping out non-recurring windfalls, related-party transactions, and deferred maintenance costs.`,
   },
   {
     label: 'Autonomic Pharmacology',
     audience: 'medical' as TargetAudience,
+    source: {
+      title: "Goodman & Gilman's Pharmacological Basis",
+      author: 'Laurence Brunton et al.',
+      citation: 'Section II: Autonomic Signaling',
+    },
     text: `The Autonomic Nervous System maintains homeostatic equilibrium via sympathetic (thoracolumbar) and parasympathetic (craniosacral) divisions. Sympathetic preganglionic neurons release acetylcholine onto nicotinic receptors, whereas postganglionic fibers release norepinephrine onto alpha and beta adrenoreceptors. Alpha-1 adrenergic receptors couple to Gq proteins, activating phospholipase C to generate IP3 and DAG, which mobilizes intracellular calcium causing vascular smooth muscle constriction, pupillary dilation (mydriasis), and urinary sphincter contraction. Beta-1 receptors couple to Gs proteins, stimulating adenylyl cyclase and increasing cyclic AMP in cardiomyocytes, directly increasing heart rate (positive chronotropy) and contractility (positive inotropy). Beta-2 receptors also signal via Gs in bronchial and vascular smooth muscle, producing bronchodilation and skeletal muscle vasodilation. In toxicological emergencies, organophosphate chemical warfare agents and insecticides irreversibly phosphorylate acetylcholinesterase, producing massive cholinergic hyperstimulation manifested by SLUDGE (Salivation, Lacrimation, Urination, Defecation, GI cramping, Emesis) and DUMBELS. Immediate treatment entails intravenous atropine to block muscarinic receptors and pralidoxime (2-PAM) to reactivate the enzyme before chemical aging occurs.`,
   },
   {
     label: 'Machine Learning Transformers',
     audience: 'technical' as TargetAudience,
+    source: {
+      title: 'Attention Is All You Need (NeurIPS 2017)',
+      author: 'Vaswani et al. (Google Brain & Research)',
+      citation: 'arXiv:1706.03762',
+      url: 'https://arxiv.org/abs/1706.03762',
+    },
     text: `The Transformer architecture, introduced by Vaswani et al. in "Attention Is All You Need", replaced recurrent and convolutional sequence processing with multi-head self-attention mechanisms. Unlike RNNs whose sequential computation creates an O(N) training bottleneck that impairs GPU parallelization, Transformers process entire sequences simultaneously. The core Scaled Dot-Product Attention computes softmax((Q * K^T) / sqrt(d_k)) * V, where queries, keys, and values are linear projections of input embeddings. Scaling by the square root of key dimension d_k prevents dot products from growing excessively large in high dimensions, which would push softmax gradients into vanishingly small regions. Positional encodings (sinusoidal functions or learnable rotary embeddings) are injected into input embeddings because self-attention operations are inherently permutation invariant. Pre-Layer Normalization (Pre-LN) and residual connections stabilize gradient backpropagation across dozens of decoder layers, enabling scaling laws where cross-entropy loss predictably drops as parameters, dataset tokens, and compute FLOPs expand.`,
   },
 ];
@@ -33,15 +71,55 @@ const PRESET_SNIPPETS = [
 export const GeneratorForm: React.FC<GeneratorFormProps> = ({
   onGenerated,
   onSelectSampleDeck,
+  initialContent = '',
+  initialSource,
+  initialImageUrl = '',
+  onOpenOcr,
 }) => {
-  const [content, setContent] = useState('');
+  const [content, setContent] = useState(initialContent);
   const [targetAudience, setTargetAudience] = useState<TargetAudience>('academic');
   const [cardCount, setCardCount] = useState<number>(8);
   const [depth, setDepth] = useState<SummaryDepth>('standard');
   const [customFocus, setCustomFocus] = useState('');
+  
+  // Sources metadata
+  const [sourceTitle, setSourceTitle] = useState(initialSource?.title || '');
+  const [sourceAuthor, setSourceAuthor] = useState(initialSource?.author || '');
+  const [sourceCitation, setSourceCitation] = useState(initialSource?.citation || '');
+  const [sourceUrl, setSourceUrl] = useState(initialSource?.url || '');
+
+  // Attached Image (e.g. from OCR or file upload)
+  const [attachedImageUrl, setAttachedImageUrl] = useState(initialImageUrl);
+  const [showSourceDetails, setShowSourceDetails] = useState(false);
+
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
+  // Sync props when user passes extracted OCR text
+  useEffect(() => {
+    if (initialContent) {
+      setContent(initialContent);
+    }
+  }, [initialContent]);
+
+  useEffect(() => {
+    if (initialSource) {
+      if (initialSource.title) setSourceTitle(initialSource.title);
+      if (initialSource.author) setSourceAuthor(initialSource.author);
+      if (initialSource.citation) setSourceCitation(initialSource.citation);
+      if (initialSource.url) setSourceUrl(initialSource.url);
+      setShowSourceDetails(true);
+    }
+  }, [initialSource]);
+
+  useEffect(() => {
+    if (initialImageUrl) {
+      setAttachedImageUrl(initialImageUrl);
+    }
+  }, [initialImageUrl]);
 
   const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
   const charCount = content.length;
@@ -55,15 +133,39 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
       const text = event.target?.result as string;
       if (text) {
         setContent(text);
+        if (!sourceTitle) {
+          setSourceTitle(file.name.replace(/\.[^/.]+$/, ''));
+        }
         setError(null);
       }
     };
     reader.readAsText(file);
   };
 
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      if (base64) {
+        setAttachedImageUrl(base64);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleApplyPreset = (preset: typeof PRESET_SNIPPETS[0]) => {
     setContent(preset.text);
     setTargetAudience(preset.audience);
+    if (preset.source) {
+      setSourceTitle(preset.source.title || '');
+      setSourceAuthor(preset.source.author || '');
+      setSourceCitation(preset.source.citation || '');
+      setSourceUrl(preset.source.url || '');
+      setShowSourceDetails(true);
+    }
     setError(null);
   };
 
@@ -96,6 +198,15 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
           cardCount,
           depth,
           customFocus: customFocus.trim() || undefined,
+          sourceMetadata: sourceTitle.trim()
+            ? {
+                title: sourceTitle.trim(),
+                author: sourceAuthor.trim() || undefined,
+                citation: sourceCitation.trim() || undefined,
+                url: sourceUrl.trim() || undefined,
+              }
+            : undefined,
+          imageUrl: attachedImageUrl || undefined,
         }),
       });
 
@@ -104,7 +215,47 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
       }
 
       const data = await res.json();
-      onGenerated(data);
+
+      // Enrich result with user-specified sources and cover image if not populated
+      const enrichedSources: SourceReference[] = data.sources && data.sources.length > 0
+        ? data.sources
+        : sourceTitle.trim()
+        ? [
+            {
+              id: `src-${Date.now()}`,
+              title: sourceTitle.trim(),
+              author: sourceAuthor.trim() || undefined,
+              citation: sourceCitation.trim() || undefined,
+              url: sourceUrl.trim() || undefined,
+              type: 'book',
+            },
+          ]
+        : [];
+
+      const enrichedDoc: SummaryDocument = {
+        ...data,
+        sources: enrichedSources,
+        coverImageUrl: attachedImageUrl || data.coverImageUrl,
+        flashcards: (data.flashcards || []).map((card: any, idx: number) => {
+          if (idx === 0 && attachedImageUrl && !card.imageUrl) {
+            return {
+              ...card,
+              imageUrl: attachedImageUrl,
+              sourceReference: sourceTitle.trim()
+                ? `${sourceTitle.trim()}${sourceCitation ? ` (${sourceCitation})` : ''}`
+                : card.sourceReference,
+            };
+          }
+          return {
+            ...card,
+            sourceReference: sourceTitle.trim()
+              ? `${sourceTitle.trim()}${sourceCitation ? ` (${sourceCitation})` : ''}`
+              : card.sourceReference,
+          };
+        }),
+      };
+
+      onGenerated(enrichedDoc);
     } catch (err: any) {
       console.error('Generation error:', err);
       setError('Failed to generate summary and flashcards. Please check your text or try again.');
@@ -134,7 +285,7 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
           <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             Quick-Load Sample Documents
           </span>
-          <span className="text-xs text-slate-400 dark:text-slate-500">Click to autofill text</span>
+          <span className="text-xs text-slate-400 dark:text-slate-500">Click to autofill text &amp; sources</span>
         </div>
         <div className="flex flex-wrap gap-2">
           {PRESET_SNIPPETS.map((preset, idx) => (
@@ -153,16 +304,27 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
       {/* Main input form */}
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
             <label htmlFor="source-text" className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
               <FileText className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
               <span>Source Material (Lecture notes, whitepapers, memos, articles)</span>
             </label>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5">
+              {onOpenOcr && (
+                <button
+                  type="button"
+                  onClick={onOpenOcr}
+                  className="px-2.5 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 rounded-lg flex items-center gap-1.5 transition-colors"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Extract from Image (OCR)</span>
+                </button>
+              )}
+
               <label
                 htmlFor="file-upload"
-                className="cursor-pointer text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                className="cursor-pointer text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 transition-colors"
               >
                 <Upload className="w-3.5 h-3.5" />
                 <span>Upload .txt/.md</span>
@@ -178,7 +340,10 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
               {content && (
                 <button
                   type="button"
-                  onClick={() => setContent('')}
+                  onClick={() => {
+                    setContent('');
+                    setAttachedImageUrl('');
+                  }}
                   className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
                 >
                   Clear
@@ -214,6 +379,155 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
           </div>
         </div>
 
+        {/* Sources & Citations Section */}
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <BookOpen className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                Source Attribution &amp; Citations
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowSourceDetails((prev) => !prev)}
+              className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+            >
+              {showSourceDetails ? 'Collapse' : (sourceTitle ? 'Edit Citation' : '+ Add Source Info')}
+            </button>
+          </div>
+
+          {(showSourceDetails || sourceTitle) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2">
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  Source Title / Book
+                </label>
+                <input
+                  type="text"
+                  value={sourceTitle}
+                  onChange={(e) => setSourceTitle(e.target.value)}
+                  placeholder="e.g. Designing Data-Intensive Applications"
+                  className="w-full p-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  Author / Organization
+                </label>
+                <input
+                  type="text"
+                  value={sourceAuthor}
+                  onChange={(e) => setSourceAuthor(e.target.value)}
+                  placeholder="e.g. Martin Kleppmann"
+                  className="w-full p-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  Chapter / Page / Section
+                </label>
+                <input
+                  type="text"
+                  value={sourceCitation}
+                  onChange={(e) => setSourceCitation(e.target.value)}
+                  placeholder="e.g. Chapter 8, pp. 180-195"
+                  className="w-full p-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  Reference URL (Optional)
+                </label>
+                <input
+                  type="url"
+                  value={sourceUrl}
+                  onChange={(e) => setSourceUrl(e.target.value)}
+                  placeholder="https://..."
+                  className="w-full p-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Attached Diagram / Image Section */}
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <ImageIcon className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                Attach Visual Diagram or Image (Optional)
+              </span>
+            </div>
+
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleImageUpload}
+              className="hidden"
+            />
+
+            {!attachedImageUrl ? (
+              <button
+                type="button"
+                onClick={() => imageInputRef.current?.click()}
+                className="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Upload Diagram</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setAttachedImageUrl('')}
+                className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Remove Image</span>
+              </button>
+            )}
+          </div>
+
+          {attachedImageUrl ? (
+            <div className="flex items-center gap-4 p-3 rounded-xl border border-indigo-200 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20">
+              <img
+                src={attachedImageUrl}
+                alt="Attached visual reference"
+                className="w-20 h-16 object-contain rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 shrink-0"
+              />
+              <div className="flex-1 min-w-0">
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block truncate">
+                  Visual Diagram Attached
+                </span>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
+                  This diagram will be saved with your study summary and displayed on the primary flashcard.
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row items-center gap-3">
+              <button
+                type="button"
+                onClick={() => imageInputRef.current?.click()}
+                className="w-full sm:w-auto px-4 py-2 text-xs font-medium rounded-lg border border-dashed border-slate-300 dark:border-slate-700 hover:border-indigo-500 text-slate-600 dark:text-slate-400 hover:text-indigo-600 transition-colors flex items-center justify-center gap-2"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Browse image file (JPG, PNG, SVG)</span>
+              </button>
+              <span className="text-xs text-slate-400">or paste image URL:</span>
+              <input
+                type="url"
+                placeholder="https://example.com/diagram.png"
+                value={attachedImageUrl}
+                onChange={(e) => setAttachedImageUrl(e.target.value)}
+                className="flex-1 w-full p-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+          )}
+        </div>
+
         {/* Configuration settings grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Target Audience */}
@@ -227,10 +541,10 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
               onChange={(e) => setTargetAudience(e.target.value as TargetAudience)}
               className="w-full p-2.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              <option value="academic">Academic & Students (Concept clarity)</option>
-              <option value="executive">Corporate Executive (BLUF & ROI)</option>
-              <option value="technical">Technical & Engineering (Architecture)</option>
-              <option value="medical">Medical & Healthcare (Clinical yield)</option>
+              <option value="academic">Academic &amp; Students (Concept clarity)</option>
+              <option value="executive">Corporate Executive (BLUF &amp; ROI)</option>
+              <option value="technical">Technical &amp; Engineering (Architecture)</option>
+              <option value="medical">Medical &amp; Healthcare (Clinical yield)</option>
             </select>
           </div>
 
@@ -315,7 +629,7 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
           ) : (
             <>
               <Sparkles className="w-4 h-4" />
-              <span>Generate Professional Summary & Flashcards</span>
+              <span>Generate Professional Summary &amp; Flashcards</span>
             </>
           )}
         </button>

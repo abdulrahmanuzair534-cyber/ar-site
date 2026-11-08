@@ -29,10 +29,16 @@ if (process.env.GEMINI_API_KEY) {
 }
 
 // Fallback generator when API key is missing or quota is exhausted
-function createFallbackGeneration(content: string, audience: string, count: number) {
+function createFallbackGeneration(
+  content: string,
+  audience: string,
+  count: number,
+  sourceMetadata?: { title?: string; author?: string; citation?: string; url?: string },
+  imageUrl?: string
+) {
   const words = content.trim().split(/\s+/);
   const wordCount = words.length;
-  const title = words.slice(0, 6).join(' ').replace(/[^\w\s]/g, '') || 'Comprehensive Topic Brief';
+  const title = sourceMetadata?.title || words.slice(0, 6).join(' ').replace(/[^\w\s]/g, '') || 'Comprehensive Topic Brief';
 
   // Extract candidate sentences
   let sentences = content
@@ -66,6 +72,8 @@ function createFallbackGeneration(content: string, audience: string, count: numb
       mnemonic: `Recall: ${subject} connects directly to the primary outcome.`,
       category: audience === 'executive' ? 'Executive Strategy' : audience === 'medical' ? 'Clinical Science' : audience === 'technical' ? 'System Architecture' : 'Core Study',
       difficulty: (i % 3 === 0 ? 'hard' : i % 2 === 0 ? 'medium' : 'easy') as 'easy' | 'medium' | 'hard',
+      imageUrl: i === 0 && imageUrl ? imageUrl : undefined,
+      sourceReference: sourceMetadata?.title ? `${sourceMetadata.title}${sourceMetadata.citation ? ` (${sourceMetadata.citation})` : ''}` : undefined,
       box: 1,
       nextReviewDate: new Date().toISOString(),
       reviewCount: 0,
@@ -73,7 +81,21 @@ function createFallbackGeneration(content: string, audience: string, count: numb
     });
   }
 
+  const sources = sourceMetadata?.title
+    ? [
+        {
+          id: `src-${Date.now()}`,
+          title: sourceMetadata.title,
+          author: sourceMetadata.author,
+          citation: sourceMetadata.citation,
+          url: sourceMetadata.url,
+          type: 'book' as const,
+        },
+      ]
+    : [];
+
   return {
+    id: `deck-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
     title: title.charAt(0).toUpperCase() + title.slice(1),
     executiveBrief: sentences.slice(0, 2).join(' ') || 'Structured executive distillation synthesized from the source document for rapid cognitive retention.',
     keyTakeaways,
@@ -103,7 +125,9 @@ function createFallbackGeneration(content: string, audience: string, count: numb
     createdAt: new Date().toISOString(),
     sourceWordCount: wordCount,
     readingTimeMinutes: Math.max(1, Math.round(wordCount / 200)),
-    tags: [audience, 'StudyDeck', 'ActiveRecall']
+    tags: [audience, 'StudyDeck', 'ActiveRecall'],
+    sources,
+    coverImageUrl: imageUrl || undefined,
   };
 }
 
@@ -117,6 +141,8 @@ app.post('/api/generate', async (req, res) => {
       cardCount = 8,
       depth = 'standard',
       customFocus = '',
+      sourceMetadata,
+      imageUrl,
     } = req.body;
 
     if (!content || typeof content !== 'string' || content.trim().length < 15) {
@@ -135,7 +161,7 @@ app.post('/api/generate', async (req, res) => {
 
     if (!ai || !isRealApiKey) {
       console.log('[API] Using structured synthesis engine (GEMINI_API_KEY not configured or placeholder)');
-      const fallbackResult = createFallbackGeneration(trimmedContent, targetAudience, parsedCardCount);
+      const fallbackResult = createFallbackGeneration(trimmedContent, targetAudience, parsedCardCount, sourceMetadata, imageUrl);
       return res.json(fallbackResult);
     }
 
@@ -261,6 +287,8 @@ ${customFocus ? `Special focus area requested by user: ${customFocus}` : ''}`;
         category: card.category || 'General',
         difficulty: (['easy', 'medium', 'hard'].includes(card.difficulty) ? card.difficulty : 'medium') as 'easy' | 'medium' | 'hard',
         contextQuote: card.contextQuote || undefined,
+        imageUrl: idx === 0 && imageUrl ? imageUrl : undefined,
+        sourceReference: sourceMetadata?.title ? `${sourceMetadata.title}${sourceMetadata.citation ? ` (${sourceMetadata.citation})` : ''}` : undefined,
         box: 1,
         nextReviewDate: new Date().toISOString(),
         reviewCount: 0,
@@ -271,6 +299,19 @@ ${customFocus ? `Special focus area requested by user: ${customFocus}` : ''}`;
       sourceWordCount: wordCount,
       readingTimeMinutes: Math.max(1, Math.round(wordCount / 200)),
       tags: parsedData.tags || [targetAudience, 'Summary', 'ActiveRecall'],
+      sources: sourceMetadata?.title
+        ? [
+            {
+              id: `src-${Date.now()}`,
+              title: sourceMetadata.title,
+              author: sourceMetadata.author,
+              citation: sourceMetadata.citation,
+              url: sourceMetadata.url,
+              type: 'book' as const,
+            },
+          ]
+        : [],
+      coverImageUrl: imageUrl || undefined,
     };
 
     return res.json(finalDocument);
@@ -280,9 +321,63 @@ ${customFocus ? `Special focus area requested by user: ${customFocus}` : ''}`;
     const fallback = createFallbackGeneration(
       req.body?.content || 'Study document',
       req.body?.targetAudience || 'academic',
-      Number(req.body?.cardCount) || 8
+      Number(req.body?.cardCount) || 8,
+      req.body?.sourceMetadata,
+      req.body?.imageUrl
     );
     return res.json(fallback);
+  }
+});
+
+// API endpoint for image-to-text visual extraction (OCR)
+app.post('/api/extract-image', async (req, res) => {
+  try {
+    const { imageBase64, mimeType = 'image/jpeg', mode = 'full-text' } = req.body;
+    if (!imageBase64) {
+      return res.status(400).json({ error: 'No image provided' });
+    }
+
+    const isRealApiKey =
+      process.env.GEMINI_API_KEY &&
+      process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' &&
+      process.env.GEMINI_API_KEY.length > 10;
+
+    if (!ai || !isRealApiKey) {
+      return res.json({ useClientOcr: true });
+    }
+
+    // Clean base64 string if data URL prefix exists
+    const cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/, '');
+
+    const promptText =
+      mode === 'handwritten'
+        ? 'Transcribe all handwritten notes, whiteboard writing, and printed text from this image with high fidelity. Preserve structure.'
+        : mode === 'table'
+        ? 'Extract all tabular data and text from this image, formatting tables cleanly in Markdown.'
+        : 'Transcribe and extract all text, formulas, headings, and bullet points from this document/image verbatim and accurately.';
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              mimeType,
+              data: cleanBase64,
+            },
+          },
+          {
+            text: promptText,
+          },
+        ],
+      },
+    });
+
+    const extractedText = response.text || '';
+    return res.json({ text: extractedText, source: 'ai-vision' });
+  } catch (error: any) {
+    console.error('Vision extraction error in /api/extract-image:', error);
+    return res.json({ useClientOcr: true, error: error.message });
   }
 });
 

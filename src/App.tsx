@@ -9,6 +9,7 @@ import { FlashcardStudyMode } from './components/FlashcardStudyMode';
 import { QuizMode } from './components/QuizMode';
 import { DeckList } from './components/DeckList';
 import { ExportModal } from './components/ExportModal';
+import { ImageToTextGenerator } from './components/ImageToTextGenerator';
 
 const LOCAL_STORAGE_KEY = 'arsite_study_decks_v1';
 const THEME_STORAGE_KEY = 'arsite_theme_mode';
@@ -36,11 +37,11 @@ export default function App() {
     return SAMPLE_DECKS[0]?.id || '';
   });
 
-  const [currentView, setCurrentView] = useState<'overview' | 'generator' | 'summary' | 'study' | 'quiz' | 'decks'>(() => {
+  const [currentView, setCurrentView] = useState<'overview' | 'generator' | 'ocr' | 'summary' | 'study' | 'quiz' | 'decks'>(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const autostart = urlParams.get('autostart');
     const view = urlParams.get('view');
-    if (view && ['overview', 'generator', 'summary', 'study', 'quiz', 'decks'].includes(view)) {
+    if (view && ['overview', 'generator', 'ocr', 'summary', 'study', 'quiz', 'decks'].includes(view)) {
       return view as any;
     }
     if (autostart === '1') {
@@ -48,6 +49,10 @@ export default function App() {
     }
     return 'overview';
   });
+
+  const [initialOcrText, setInitialOcrText] = useState<string>('');
+  const [initialOcrSource, setInitialOcrSource] = useState<{ title?: string; author?: string; citation?: string } | undefined>(undefined);
+  const [initialOcrImageUrl, setInitialOcrImageUrl] = useState<string>('');
 
   const [isDark, setIsDark] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
@@ -133,7 +138,10 @@ export default function App() {
           <EnterpriseOverview
             onLaunchGenerator={() => setCurrentView('generator')}
             onExploreDecks={() => setCurrentView('decks')}
-            onOpenStudy={() => setCurrentView('study')}
+            onOpenStudy={() => {
+              setCurrentDeckId(SAMPLE_DECKS[0].id);
+              setCurrentView('summary');
+            }}
           />
         )}
 
@@ -144,6 +152,21 @@ export default function App() {
               setCurrentDeckId(deckId);
               setCurrentView('summary');
             }}
+            initialContent={initialOcrText}
+            initialSource={initialOcrSource}
+            initialImageUrl={initialOcrImageUrl}
+            onOpenOcr={() => setCurrentView('ocr')}
+          />
+        )}
+
+        {currentView === 'ocr' && (
+          <ImageToTextGenerator
+            onSendToGenerator={(text, sourceInfo, imageUrl) => {
+              setInitialOcrText(text);
+              setInitialOcrSource(sourceInfo);
+              setInitialOcrImageUrl(imageUrl || '');
+              setCurrentView('generator');
+            }}
           />
         )}
 
@@ -153,6 +176,9 @@ export default function App() {
             onStartStudy={() => setCurrentView('study')}
             onStartQuiz={() => setCurrentView('quiz')}
             onOpenExport={() => setIsExportOpen(true)}
+            onUpdateDocument={(updated) => {
+              setDecks((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
+            }}
           />
         )}
 
@@ -194,7 +220,7 @@ export default function App() {
         />
       )}
 
-      {/* Giant Company Footer */}
+      {/* Corporate Enterprise Footer */}
       <footer className="border-t border-slate-200 dark:border-slate-800 py-10 px-6 text-xs text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-950">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-3">
@@ -214,10 +240,22 @@ export default function App() {
               Enterprise Overview
             </button>
             <button
+              onClick={() => setCurrentView('summary')}
+              className="hover:text-slate-900 dark:hover:text-white transition-colors"
+            >
+              Summary Hub
+            </button>
+            <button
               onClick={() => setCurrentView('generator')}
               className="hover:text-slate-900 dark:hover:text-white transition-colors"
             >
               AI Generator
+            </button>
+            <button
+              onClick={() => setCurrentView('ocr')}
+              className="hover:text-slate-900 dark:hover:text-white transition-colors"
+            >
+              Image to Text (OCR)
             </button>
             <button
               onClick={() => setCurrentView('decks')}

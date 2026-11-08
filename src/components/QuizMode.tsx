@@ -174,6 +174,8 @@ export const QuizMode: React.FC<QuizModeProps> = ({
 
   if (!currentQ) return null;
 
+  const matchingCard = cards.find((c) => c.id === currentQ.flashcardId);
+
   return (
     <div className="max-w-2xl mx-auto py-8 px-4 sm:px-6 space-y-6">
       {/* Top Header */}
@@ -210,6 +212,17 @@ export const QuizMode: React.FC<QuizModeProps> = ({
         <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 block mb-2">
           Recall Challenge
         </span>
+
+        {matchingCard?.imageUrl && (
+          <div className="mb-4 max-h-44 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-950 flex items-center justify-center p-2">
+            <img
+              src={matchingCard.imageUrl}
+              alt="Quiz visual reference"
+              className="max-h-40 w-auto object-contain rounded"
+            />
+          </div>
+        )}
+
         <h3 className="text-lg font-bold text-slate-900 dark:text-white leading-snug font-display mb-6">
           {currentQ.question}
         </h3>
@@ -254,13 +267,18 @@ export const QuizMode: React.FC<QuizModeProps> = ({
 
         {/* Explanation callout after answer */}
         {isAnswered && (
-          <div className="mt-6 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-1">
+          <div className="mt-6 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-1.5">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
-              Explanation & Memory Anchor
+              Explanation &amp; Memory Anchor
             </span>
             <p className="text-xs text-slate-700 dark:text-slate-300">
               {currentQ.explanation}
             </p>
+            {matchingCard?.sourceReference && (
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 italic pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
+                Source: {matchingCard.sourceReference}
+              </p>
+            )}
           </div>
         )}
 

@@ -16,6 +16,8 @@ import {
   HelpCircle,
   Sparkles,
   Lightbulb,
+  BookOpen,
+  Image as ImageIcon,
 } from 'lucide-react';
 
 interface FlashcardStudyModeProps {
@@ -331,14 +333,29 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
           }`}
         >
           {/* FRONT SIDE */}
-          <div className={`absolute inset-0 p-8 flex flex-col justify-between backface-hidden ${isFlipped ? 'pointer-events-none' : ''}`}>
+          <div className={`absolute inset-0 p-6 sm:p-8 flex flex-col justify-between backface-hidden overflow-y-auto ${isFlipped ? 'pointer-events-none' : ''}`}>
             <div>
-              <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-6">
+              <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-4">
                 <span className="font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
                   {currentCard.category || 'Concept Prompt'}
                 </span>
                 <span className="capitalize">{currentCard.difficulty || 'medium'} difficulty</span>
               </div>
+
+              {currentCard.imageUrl && (
+                <div className="mb-4 max-h-48 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-950 flex flex-col items-center justify-center p-2">
+                  <img
+                    src={currentCard.imageUrl}
+                    alt={currentCard.imageCaption || 'Card visual diagram'}
+                    className="max-h-40 w-auto object-contain rounded"
+                  />
+                  {currentCard.imageCaption && (
+                    <span className="text-[10px] text-slate-400 mt-1 truncate">
+                      {currentCard.imageCaption}
+                    </span>
+                  )}
+                </div>
+              )}
 
               <h3 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white leading-snug font-display">
                 {currentCard.question}
@@ -350,9 +367,16 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
                   <span>Hint: {currentCard.mnemonic.slice(0, 45)}...</span>
                 </div>
               )}
+
+              {currentCard.sourceReference && (
+                <div className="mt-3 text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                  <BookOpen className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                  <span className="truncate">Source: {currentCard.sourceReference}</span>
+                </div>
+              )}
             </div>
 
-            <div className="flex items-center justify-between pt-6 border-t border-slate-100 dark:border-slate-800/80 text-xs text-slate-400">
+            <div className="flex items-center justify-between pt-4 border-t border-slate-100 dark:border-slate-800/80 text-xs text-slate-400 mt-4">
               {!showHint && currentCard.mnemonic ? (
                 <button
                   type="button"
@@ -375,7 +399,7 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
           </div>
 
           {/* BACK SIDE */}
-          <div className={`absolute inset-0 p-8 flex flex-col justify-between backface-hidden rotate-y-180 ${!isFlipped ? 'pointer-events-none' : ''}`}>
+          <div className={`absolute inset-0 p-6 sm:p-8 flex flex-col justify-between backface-hidden rotate-y-180 overflow-y-auto ${!isFlipped ? 'pointer-events-none' : ''}`}>
             <div>
               <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-4">
                 <span className="font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
@@ -385,12 +409,22 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
                 <span className="capitalize">{currentCard.category}</span>
               </div>
 
+              {currentCard.imageUrl && (
+                <div className="mb-3 max-h-36 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-950 flex items-center justify-center p-2">
+                  <img
+                    src={currentCard.imageUrl}
+                    alt={currentCard.imageCaption || 'Card visual diagram'}
+                    className="max-h-32 w-auto object-contain rounded"
+                  />
+                </div>
+              )}
+
               <p className="text-base sm:text-lg font-medium text-slate-900 dark:text-white leading-relaxed mb-4">
                 {currentCard.answer}
               </p>
 
               {currentCard.mnemonic && (
-                <div className="p-3.5 rounded-xl bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-xs text-amber-900 dark:text-amber-200">
+                <div className="p-3.5 rounded-xl bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-xs text-amber-900 dark:text-amber-200 mb-3">
                   <span className="font-bold text-[10px] uppercase tracking-wider text-amber-800 dark:text-amber-300 block mb-0.5">
                     Memory Anchor (Mnemonic)
                   </span>
@@ -398,14 +432,21 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
                 </div>
               )}
 
+              {currentCard.sourceReference && (
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mb-2">
+                  <BookOpen className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                  <span className="truncate">Source: {currentCard.sourceReference}</span>
+                </div>
+              )}
+
               {currentCard.contextQuote && (
-                <div className="mt-3 text-xs italic text-slate-500 dark:text-slate-400 border-l-2 border-slate-300 dark:border-slate-700 pl-3">
+                <div className="mt-2 text-xs italic text-slate-500 dark:text-slate-400 border-l-2 border-slate-300 dark:border-slate-700 pl-3">
                   "{currentCard.contextQuote}"
                 </div>
               )}
             </div>
 
-            <div className="pt-4 border-t border-slate-100 dark:border-slate-800/80 text-xs text-slate-400 flex justify-end">
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 text-xs text-slate-400 flex justify-end mt-3">
               <span>Rate your recall below to advance card</span>
             </div>
           </div>
