@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { TargetAudience, SummaryDepth, SummaryDocument, SourceReference } from '../types/index';
+import { generateClientSynthesis } from '../utils/clientSynthesis';
 import {
   Sparkles,
   FileText,
@@ -189,10 +190,46 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
     }, 3200);
 
     try {
-      const res = await fetch('/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      let data: any = null;
+
+      // Try server endpoint first (with timeout protection)
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+        const res = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            content,
+            targetAudience,
+            cardCount,
+            depth,
+            customFocus: customFocus.trim() || undefined,
+            sourceMetadata: sourceTitle.trim()
+              ? {
+                  title: sourceTitle.trim(),
+                  author: sourceAuthor.trim() || undefined,
+                  citation: sourceCitation.trim() || undefined,
+                  url: sourceUrl.trim() || undefined,
+                }
+              : undefined,
+            imageUrl: attachedImageUrl || undefined,
+          }),
+        });
+        clearTimeout(timeoutId);
+
+        if (res.ok) {
+          data = await res.json();
+        }
+      } catch (fetchErr) {
+        console.info('Server API unreachable (e.g. static GitHub Pages); engaging client cognitive synthesis engine.');
+      }
+
+      // If server is unavailable (e.g. GitHub Pages static hosting) or returned invalid data, use client engine
+      if (!data || !data.flashcards || data.flashcards.length === 0) {
+        data = generateClientSynthesis({
           content,
           targetAudience,
           cardCount,
@@ -207,14 +244,8 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
               }
             : undefined,
           imageUrl: attachedImageUrl || undefined,
-        }),
-      });
-
-      if (!res.ok) {
-        throw new Error(`Generation error (${res.status})`);
+        });
       }
-
-      const data = await res.json();
 
       // Enrich result with user-specified sources and cover image if not populated
       const enrichedSources: SourceReference[] = data.sources && data.sources.length > 0
@@ -258,7 +289,20 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
       onGenerated(enrichedDoc);
     } catch (err: any) {
       console.error('Generation error:', err);
-      setError('Failed to generate summary and flashcards. Please check your text or try again.');
+      // Even in the most extreme unexpected error, provide client synthesis
+      try {
+        const resilientDoc = generateClientSynthesis({
+          content,
+          targetAudience,
+          cardCount,
+          depth,
+          sourceMetadata: sourceTitle.trim() ? { title: sourceTitle.trim() } : undefined,
+          imageUrl: attachedImageUrl || undefined,
+        });
+        onGenerated(resilientDoc);
+      } catch (fallbackErr) {
+        setError('Please check your text input and try again.');
+      }
     } finally {
       clearTimeout(stepTimer1);
       clearTimeout(stepTimer2);

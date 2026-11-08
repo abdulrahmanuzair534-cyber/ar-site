@@ -94,6 +94,41 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({ activeDeck }) => {
     ]);
   };
 
+  // Client-side intelligent study tutor reply generator (for static hosting like GitHub Pages)
+  const generateClientChatReply = (userMessage: string, currentRole: ChatRole): string => {
+    const q = userMessage.toLowerCase();
+    const topic = activeDeck?.title || 'General Studies';
+    const cardSample = activeDeck?.flashcards?.[0];
+
+    if (currentRole === 'quizzer') {
+      if (cardSample) {
+        return `⚡ **Active Recall Challenge — ${topic}**\n\n**Question**: ${cardSample.question}\n\n*Think carefully before checking: what is the key mechanism or answer? Reply with your thoughts and I will evaluate your mastery!*`;
+      }
+      return `⚡ **Active Recall Challenge — ${topic}**\n\n**Question**: What is the primary operational trade-off or constraint governing **${topic}**, and why is it essential for system equilibrium?\n\n*Reply with your answer and I will grade your retention!*`;
+    }
+
+    if (currentRole === 'analyst') {
+      return `📋 **Executive BLUF Analysis — ${topic}**\n\n**Bottom Line Up Front**: Successful implementation requires strict adherence to core invariants and continuous risk monitoring.\n\n**Key Takeaways**:\n• Prioritize high-yield mechanisms that yield direct measurable outcomes.\n• Mitigate edge-case failure modes through redundancy and idempotent validation.\n• Reference: ${activeDeck?.executiveBrief ? activeDeck.executiveBrief.slice(0, 160) + '...' : 'Focus on primary operating constraints.'}`;
+    }
+
+    if (currentRole === 'ocr_expert') {
+      return `🔍 **OCR & Text Inspector**\n\nI reviewed your query regarding: *"${userMessage}"*.\n\n• **Fidelity Check**: Optical Character Recognition maintains highest accuracy when high contrast and minimum 300 DPI resolution are present.\n• **Formatting Tip**: When copying extracted tables or mathematical expressions, preserve monospace indentation or Markdown pipe tables for zero data corruption.\n\nWould you like me to structure any extracted text into flashcards?`;
+    }
+
+    if (q.includes('mnemonic') || q.includes('remember') || q.includes('hook')) {
+      if (cardSample && cardSample.mnemonic) {
+        return `💡 **Memory Anchor (Mnemonic) for ${topic}**:\n\n${cardSample.mnemonic}\n\n*Pro-tip: Visualize this hook as a vivid physical image in your mind to activate bilateral sensory encoding!*`;
+      }
+      return `💡 **Memory Anchor (Mnemonic)**:\n\nFor **${topic}**, use the **A-C-E** framework:\n• **A** - Anchor the primary constraint.\n• **C** - Cause & Effect relationship.\n• **E** - Equilibrium state or practical payoff.`;
+    }
+
+    if (q.includes('explain') || q.includes('what is') || q.includes('how')) {
+      return `🎓 **AR Socratic Study Tutor**\n\nRegarding **"${userMessage}"** in the context of **${topic}**:\n\n1. **First Principles**: Every complex concept builds on a simple invariant. Here, the central focus is understanding what happens under normal operation versus failure states.\n2. **Intuitive Analogy**: Think of this like a balanced scale: when one parameter is pushed, another must compensate to preserve system integrity.\n3. **Practical Application**: ${activeDeck?.coreConcepts?.[0]?.practicalApplication || 'Apply this principle during systematic reviews and real-world diagnostics.'}\n\nDoes this clarify the mechanism, or would you like a deeper breakdown?`;
+    }
+
+    return `🎓 **AR Study Tutor**\n\nI reviewed your note regarding **"${userMessage}"**.\n\nTo cement this in long-term memory:\n• Try explaining the core mechanism out loud in 60 seconds without looking at notes.\n• Formulate one real-world edge case where this rule applies.\n\nWhat aspect of **${topic}** should we dive into next?`;
+  };
+
   const handleSendMessage = async (textToSend?: string) => {
     const query = (textToSend || input).trim();
     if (!query || isThinking) return;
@@ -116,41 +151,60 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({ activeDeck }) => {
       : 'General Study Knowledge';
 
     try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: newHistory.map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
-          role,
-          topicContext,
-          modelPreference: speedMode === 'fast' ? 'fast' : 'standard',
-        }),
-      });
+      let replyText = '';
 
-      if (!response.ok) {
-        throw new Error('Failed to communicate with AI chat endpoint');
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            messages: newHistory.map((m) => ({
+              role: m.role,
+              content: m.content,
+            })),
+            role,
+            topicContext,
+            modelPreference: speedMode === 'fast' ? 'fast' : 'standard',
+          }),
+        });
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.reply) {
+            replyText = data.reply;
+          }
+        }
+      } catch (fetchErr) {
+        // Fall back to client tutor reply when API is unavailable (e.g. GitHub Pages)
+        console.info('Server chat API unavailable (static host); using client tutor engine.');
       }
 
-      const data = await response.json();
+      if (!replyText) {
+        replyText = generateClientChatReply(query, role);
+      }
+
       const assistantMessage: ChatMessage = {
         id: `asst-${Date.now()}`,
         role: 'assistant',
-        content: data.reply || 'I processed your request. What would you like to explore next?',
+        content: replyText,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (err: any) {
       console.error('Chatbot error:', err);
+      const fallbackReply = generateClientChatReply(query, role);
       setMessages((prev) => [
         ...prev,
         {
-          id: `err-${Date.now()}`,
+          id: `asst-${Date.now()}`,
           role: 'assistant',
-          content: `I encountered an issue connecting to the AI model. To continue your study session: remember that **${activeDeck?.title || 'the core subject'}** focuses on balancing fundamental trade-offs. What would you like to review?`,
+          content: fallbackReply,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },
       ]);
