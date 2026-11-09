@@ -22,7 +22,24 @@ export default function App() {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
+          const seenIds = new Set<string>();
+          return parsed.map((d: any, idx: number) => {
+            let id = typeof d?.id === 'string' && d.id.trim() ? d.id.trim() : '';
+            if (!id || seenIds.has(id)) {
+              id = `deck-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`;
+            }
+            seenIds.add(id);
+            return {
+              ...d,
+              id,
+              flashcards: Array.isArray(d.flashcards)
+                ? d.flashcards.map((card: any, cIdx: number) => ({
+                    ...card,
+                    id: card?.id || `fc-${id}-${cIdx}`,
+                  }))
+                : [],
+            };
+          });
         }
       }
     } catch (e) {
@@ -195,6 +212,7 @@ export default function App() {
 
         {currentView === 'quiz' && activeDeck && (
           <QuizMode
+            deckId={activeDeck.id}
             cards={activeDeck.flashcards}
             deckTitle={activeDeck.title}
             onBackToSummary={() => setCurrentView('summary')}

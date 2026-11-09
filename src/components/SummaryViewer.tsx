@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { SummaryDocument, SourceReference } from '../types/index';
 import { speech } from '../utils/speech';
+import { DeckMasteryChart } from './DeckMasteryChart';
 import {
   Volume2,
   VolumeX,
@@ -316,6 +317,12 @@ export const SummaryViewer: React.FC<SummaryViewerProps> = ({
           </div>
         </section>
       )}
+
+      {/* Visual Progress Tracking & Mastery Curve */}
+      <DeckMasteryChart
+        document={document}
+        onTakeQuiz={onStartQuiz}
+      />
 
       {/* Executive Brief (BLUF) */}
       <section className="p-6 rounded-2xl border border-indigo-100 dark:border-indigo-950/60 bg-gradient-to-br from-indigo-50/50 via-white to-slate-50 dark:from-slate-900 dark:via-slate-900 dark:to-indigo-950/30">

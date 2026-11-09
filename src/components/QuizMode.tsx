@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Flashcard, QuizQuestion } from '../types/index';
 import { generateQuizFromFlashcards } from '../utils/retentionLogic';
 import { recordStudySession } from '../utils/streakService';
+import { recordQuizAttempt } from '../utils/quizProgressService';
 import { CheckCircle2, XCircle, HelpCircle, RotateCcw, ArrowRight, Award, ChevronLeft } from 'lucide-react';
 
 interface QuizModeProps {
+  deckId?: string;
   cards: Flashcard[];
   deckTitle: string;
   onBackToSummary: () => void;
@@ -12,6 +14,7 @@ interface QuizModeProps {
 }
 
 export const QuizMode: React.FC<QuizModeProps> = ({
+  deckId,
   cards,
   deckTitle,
   onBackToSummary,
@@ -79,6 +82,9 @@ export const QuizMode: React.FC<QuizModeProps> = ({
       setIsAnswered(false);
     } else {
       recordStudySession();
+      if (deckId) {
+        recordQuizAttempt(deckId, score, questions.length);
+      }
       setIsCompleted(true);
     }
   };

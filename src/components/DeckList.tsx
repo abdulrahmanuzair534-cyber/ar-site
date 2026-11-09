@@ -88,7 +88,7 @@ export const DeckList: React.FC<DeckListProps> = ({
             { id: 'medical', label: 'Medical' },
           ].map((tab) => (
             <button
-              key={tab.id}
+              key={`track-tab-${tab.id}`}
               onClick={() => setSelectedTrack(tab.id)}
               className={`px-3 py-1.5 rounded-lg font-medium transition-all whitespace-nowrap shrink-0 ${
                 selectedTrack === tab.id
@@ -123,11 +123,12 @@ export const DeckList: React.FC<DeckListProps> = ({
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filteredDecks.map((deck) => {
-            const mastery = calculateDeckMastery(deck.flashcards);
+          {filteredDecks.map((deck, idx) => {
+            const mastery = calculateDeckMastery(deck.flashcards || []);
+            const deckKey = deck?.id ? `deck-${deck.id}-${idx}` : `deck-item-${idx}`;
             return (
               <div
-                key={deck.id}
+                key={deckKey}
                 className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 flex flex-col justify-between hover:border-slate-300 dark:hover:border-slate-700 transition-all shadow-xs"
               >
                 <div>
