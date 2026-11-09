@@ -13,7 +13,9 @@ import {
   Link as LinkIcon,
   X,
   Plus,
+  Mic,
 } from 'lucide-react';
+import { AudioTranscriberModal } from './AudioTranscriberModal';
 
 interface GeneratorFormProps {
   onGenerated: (doc: SummaryDocument) => void;
@@ -91,6 +93,7 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
   const [sourceAuthor, setSourceAuthor] = useState(initialSource?.author || '');
   const [sourceCitation, setSourceCitation] = useState(initialSource?.citation || '');
   const [sourceUrl, setSourceUrl] = useState(initialSource?.url || '');
+  const [isAudioModalOpen, setIsAudioModalOpen] = useState(false);
 
   // Attached Image (e.g. from OCR or file upload)
   const [attachedImageUrl, setAttachedImageUrl] = useState(initialImageUrl);
@@ -370,6 +373,16 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
                   <span>Extract from Files</span>
                 </button>
               )}
+
+              <button
+                type="button"
+                onClick={() => setIsAudioModalOpen(true)}
+                className="cursor-pointer text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 transition-colors"
+                title="Dictate speech or upload audio file to transcribe with Gemini (gemini-3.5-transcribe)"
+              >
+                <Mic className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                <span>Transcribe Audio</span>
+              </button>
 
               <label
                 htmlFor="file-upload"
@@ -683,6 +696,16 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
           )}
         </button>
       </form>
+
+      {/* Audio Transcription Modal with gemini-3.5-transcribe */}
+      <AudioTranscriberModal
+        isOpen={isAudioModalOpen}
+        onClose={() => setIsAudioModalOpen(false)}
+        onTranscriptComplete={(transcript) => {
+          setContent((prev) => (prev.trim() ? `${prev.trim()}\n\n${transcript}` : transcript));
+        }}
+        title="Dictate & Transcribe with Gemini"
+      />
     </div>
   );
 };

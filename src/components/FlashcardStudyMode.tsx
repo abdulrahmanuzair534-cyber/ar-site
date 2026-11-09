@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Flashcard, ReviewRating } from '../types/index';
 import { calculateLeitnerUpdate, calculateDeckMastery, shuffleArray } from '../utils/retentionLogic';
 import { recordStudySession } from '../utils/streakService';
@@ -19,6 +19,7 @@ import {
   Lightbulb,
   BookOpen,
   Image as ImageIcon,
+  X,
 } from 'lucide-react';
 
 interface FlashcardStudyModeProps {
@@ -36,6 +37,7 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
   onBackToSummary,
   onStartQuiz,
 }) => {
+  const originalCardsRef = useRef<Flashcard[]>(initialCards);
   const [cards, setCards] = useState<Flashcard[]>(initialCards);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
@@ -44,12 +46,34 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
   const [sessionRatings, setSessionRatings] = useState<Record<string, ReviewRating>>({});
   const [isCompleted, setIsCompleted] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isShuffled, setIsShuffled] = useState(false);
+  const [notification, setNotification] = useState<string | null>(null);
+  const notificationTimerRef = useRef<any>(null);
+
+  const showNotification = (msg: string) => {
+    setNotification(msg);
+    if (notificationTimerRef.current) clearTimeout(notificationTimerRef.current);
+    notificationTimerRef.current = setTimeout(() => {
+      setNotification(null);
+    }, 2800);
+  };
 
   const currentCard = cards[currentIndex] || cards[0];
 
   useEffect(() => {
+    originalCardsRef.current = initialCards;
+    setCards(initialCards);
+    setCurrentIndex(0);
+    setIsFlipped(false);
+    setIsShuffled(false);
+  }, [initialCards]);
+
+  useEffect(() => {
     speech.setListener((speaking) => setIsSpeaking(speaking));
-    return () => speech.stop();
+    return () => {
+      speech.stop();
+      if (notificationTimerRef.current) clearTimeout(notificationTimerRef.current);
+    };
   }, []);
 
   const handleFlip = useCallback(() => {
@@ -105,10 +129,23 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
 
   const handleShuffle = () => {
     speech.stop();
-    setCards(shuffleArray(cards));
+    const randomized = shuffleArray(cards);
+    setCards(randomized);
     setCurrentIndex(0);
     setIsFlipped(false);
     setShowHint(false);
+    setIsShuffled(true);
+    showNotification('Cards shuffled for this study session!');
+  };
+
+  const handleResetOrder = () => {
+    speech.stop();
+    setCards([...originalCardsRef.current]);
+    setCurrentIndex(0);
+    setIsFlipped(false);
+    setShowHint(false);
+    setIsShuffled(false);
+    showNotification('Reset to original card order.');
   };
 
   const toggleStar = (id: string) => {
@@ -152,6 +189,9 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
         handlePrev();
+      } else if (e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        handleShuffle();
       } else if (isFlipped) {
         if (e.key === '1') handleRateCard('again');
         if (e.key === '2') handleRateCard('hard');
@@ -162,7 +202,7 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleFlip, handleNext, handlePrev, handleRateCard, isFlipped]);
+  }, [handleFlip, handleNext, handlePrev, handleRateCard, isFlipped, handleShuffle]);
 
   // Restart session or review only flagged/again cards
   const handleReviewAgain = (onlyMissed = false) => {
@@ -252,6 +292,17 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
             </button>
 
             <button
+              onClick={() => {
+                handleReviewAgain(false);
+                handleShuffle();
+              }}
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 text-xs font-semibold transition-colors flex items-center justify-center gap-1.5"
+            >
+              <Shuffle className="w-3.5 h-3.5" />
+              <span>Shuffle &amp; Practice</span>
+            </button>
+
+            <button
               onClick={onStartQuiz}
               className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 shadow-sm"
             >
@@ -279,14 +330,35 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
           <span>Exit to Summary</span>
         </button>
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleShuffle}
-            title="Shuffle deck"
-            className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-          >
-            <Shuffle className="w-4 h-4" />
-          </button>
+        <div className="flex items-center gap-2">
+          {/* Prominent Shuffle Button */}
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={handleShuffle}
+              title="Randomize card order for current study session (Shortcut: S)"
+              className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer ${
+                isShuffled
+                  ? 'border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 ring-2 ring-indigo-500/20'
+                  : 'border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+              }`}
+            >
+              <Shuffle className={`w-3.5 h-3.5 ${isShuffled ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-500'}`} />
+              <span>{isShuffled ? 'Reshuffle' : 'Shuffle Cards'}</span>
+            </button>
+
+            {isShuffled && (
+              <button
+                type="button"
+                onClick={handleResetOrder}
+                title="Restore original progressive order"
+                className="px-2 py-1.5 text-[11px] font-medium text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors cursor-pointer"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+
           <button
             onClick={handleSpeakCurrent}
             title={isSpeaking ? 'Stop voice' : 'Listen with text-to-speech'}
@@ -305,6 +377,23 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Shuffle notification toast banner */}
+      {notification && (
+        <div className="px-3.5 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold flex items-center justify-between shadow-md transition-all">
+          <div className="flex items-center gap-2">
+            <Shuffle className="w-3.5 h-3.5" />
+            <span>{notification}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setNotification(null)}
+            className="text-white/80 hover:text-white"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Progress meter */}
       <div className="space-y-1.5">

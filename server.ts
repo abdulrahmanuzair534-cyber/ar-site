@@ -440,6 +440,53 @@ Format all responses cleanly in Markdown with bold terms, bullet points, and cod
   }
 });
 
+// Audio Transcription endpoint using model: gemini-3.5-transcribe
+app.post('/api/transcribe', async (req, res) => {
+  try {
+    const { audioData, mimeType = 'audio/webm' } = req.body;
+    if (!audioData) {
+      return res.status(400).json({ error: 'audioData is required' });
+    }
+
+    if (!ai) {
+      return res.status(503).json({
+        error: 'Gemini API key is not configured on the server.',
+      });
+    }
+
+    // Clean base64 string if it contains data URI prefix
+    const base64Data = audioData.replace(/^data:audio\/[a-zA-Z0-9.+_-]+;base64,/, '');
+
+    const audioPart = {
+      inlineData: {
+        mimeType,
+        data: base64Data,
+      },
+    };
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.5-transcribe',
+      contents: {
+        parts: [
+          audioPart,
+          {
+            text: 'Transcribe this speech or audio precisely and verbatim. Return only the plain transcription text.',
+          },
+        ],
+      },
+    });
+
+    const transcript = response.text?.trim() || '';
+    return res.json({ transcript });
+  } catch (err: any) {
+    console.error('Transcription error with gemini-3.5-transcribe:', err?.message || err);
+    return res.status(500).json({
+      error: 'Audio transcription failed',
+      details: err?.message,
+    });
+  }
+});
+
 // Setup Vite or static files
 async function startServer() {
   if (!isProduction) {

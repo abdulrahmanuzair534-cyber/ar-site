@@ -13,7 +13,9 @@ import {
   FileCode,
   Trash2,
   Filter,
+  Mic,
 } from 'lucide-react';
+import { AudioTranscriberModal } from './AudioTranscriberModal';
 
 interface DocumentTextExtractorProps {
   onSendToGenerator: (
@@ -69,6 +71,7 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
   const [sourceTitle, setSourceTitle] = useState<string>('');
   const [sourceAuthor, setSourceAuthor] = useState<string>('');
   const [sourceCitation, setSourceCitation] = useState<string>('');
+  const [isAudioModalOpen, setIsAudioModalOpen] = useState<boolean>(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -266,6 +269,20 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
                 </span>
               ))}
             </div>
+
+            <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-center">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsAudioModalOpen(true);
+                }}
+                className="px-3.5 py-1.5 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Mic className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                <span>Dictate or Transcribe Audio (Gemini 3.5)</span>
+              </button>
+            </div>
           </div>
 
           {/* Source Attribution Inputs */}
@@ -430,6 +447,22 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Audio Transcription Modal */}
+      <AudioTranscriberModal
+        isOpen={isAudioModalOpen}
+        onClose={() => setIsAudioModalOpen(false)}
+        onTranscriptComplete={(transcript) => {
+          setExtractedText(transcript);
+          setActiveFileName('Audio_Recording_Transcript.txt');
+          setActiveFileType('audio');
+          setActiveFileSize(transcript.length);
+          if (!sourceTitle) {
+            setSourceTitle('Voice Note / Audio Lecture Transcript');
+          }
+        }}
+        title="Dictate & Transcribe Audio"
+      />
     </div>
   );
 };
