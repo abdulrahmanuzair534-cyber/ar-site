@@ -106,8 +106,21 @@ export const AudioTranscriberModal: React.FC<AudioTranscriberModalProps> = ({
       startTimer();
       setStatusMessage('Recording voice note... speak clearly into your mic.');
     } catch (err: any) {
-      console.error('Microphone error:', err);
-      setError('Microphone access denied or unavailable. Please grant permission or upload an audio file.');
+      const isPermissionDenied =
+        err?.name === 'NotAllowedError' ||
+        err?.name === 'PermissionDeniedError' ||
+        err?.message?.toLowerCase().includes('permission denied') ||
+        err?.name === 'SecurityError';
+
+      if (isPermissionDenied) {
+        console.warn('Microphone permission not granted by browser or user policy:', err?.message || err);
+        setError(
+          'Microphone permission was not granted by your browser. You can click the lock/settings icon in your browser address bar to allow microphone access, or upload an audio file (.mp3, .wav, .m4a, .webm) below.'
+        );
+      } else {
+        console.warn('Audio capture notice:', err?.message || err);
+        setError('Microphone is unavailable or in use by another application. Please upload an audio file or try a sample note.');
+      }
       setStatusMessage('');
     }
   };
@@ -166,6 +179,14 @@ export const AudioTranscriberModal: React.FC<AudioTranscriberModalProps> = ({
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const handleLoadSampleAudio = () => {
+    setError(null);
+    setResultText(
+      'In today’s lecture on distributed systems, we examined consensus protocols and the PACELC theorem. Specifically, when network partitions occur, architects must sacrifice availability to guarantee strict serializability or sacrifice consistency to preserve uptime. Furthermore, Raft uses majority quorum voting with terms to elect leaders and ensure committed log entries are never overwritten.'
+    );
+    setStatusMessage('Sample lecture audio loaded successfully!');
   };
 
   const handleApply = () => {
@@ -297,11 +318,31 @@ export const AudioTranscriberModal: React.FC<AudioTranscriberModalProps> = ({
           )}
         </div>
 
-        {/* Error message */}
+        {/* Error message & Recovery Fallback */}
         {error && (
-          <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-xs text-red-700 dark:text-red-300 flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>{error}</span>
+          <div className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-xs text-red-700 dark:text-red-300 space-y-2.5">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 text-[11px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+              >
+                <Upload className="w-3 h-3" />
+                <span>Upload Audio File</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleLoadSampleAudio}
+                className="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 text-[11px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+              >
+                <Sparkles className="w-3 h-3" />
+                <span>Load Sample Audio Transcript</span>
+              </button>
+            </div>
           </div>
         )}
 

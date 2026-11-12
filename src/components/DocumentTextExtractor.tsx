@@ -72,6 +72,7 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
   const [sourceAuthor, setSourceAuthor] = useState<string>('');
   const [sourceCitation, setSourceCitation] = useState<string>('');
   const [isAudioModalOpen, setIsAudioModalOpen] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -81,6 +82,7 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
 
   const handleProcessFile = async (file: File) => {
     setIsProcessing(true);
+    setError(null);
     try {
       const result: ExtractedFileResult = await extractTextFromFile(file);
       setExtractedText(result.text);
@@ -95,8 +97,8 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
         .trim();
       setSourceTitle(cleanTitle);
     } catch (err: any) {
-      console.error('File extraction error:', err);
-      alert('Could not extract text from this file. Please ensure it is a valid text, markdown, or PDF document.');
+      console.warn('File extraction notice:', err?.message || err);
+      setError('Could not extract text from this file. Please ensure it is a valid text, markdown, or PDF document.');
     } finally {
       setIsProcessing(false);
     }
@@ -284,6 +286,20 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Extraction Error Alert */}
+          {error && (
+            <div className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-xs text-red-700 dark:text-red-300 flex items-start justify-between gap-2">
+              <span>{error}</span>
+              <button
+                type="button"
+                onClick={() => setError(null)}
+                className="text-red-500 hover:text-red-700 font-bold"
+              >
+                ✕
+              </button>
+            </div>
+          )}
 
           {/* Source Attribution Inputs */}
           <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-xs space-y-3">

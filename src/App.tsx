@@ -128,12 +128,10 @@ export default function App() {
   };
 
   const handleDeleteDeck = (deckId: string) => {
-    if (confirm('Are you sure you want to delete this study deck?')) {
-      const remaining = decks.filter((d) => d.id !== deckId);
-      setDecks(remaining.length > 0 ? remaining : SAMPLE_DECKS);
-      if (currentDeckId === deckId) {
-        setCurrentDeckId(remaining[0]?.id || SAMPLE_DECKS[0].id);
-      }
+    const remaining = decks.filter((d) => d.id !== deckId);
+    setDecks(remaining.length > 0 ? remaining : SAMPLE_DECKS);
+    if (currentDeckId === deckId) {
+      setCurrentDeckId(remaining[0]?.id || SAMPLE_DECKS[0].id);
     }
   };
 
