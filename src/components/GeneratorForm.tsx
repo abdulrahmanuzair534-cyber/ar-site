@@ -178,8 +178,8 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!content.trim() || wordCount < 10) {
-      setError('Please provide at least 15 words of text or select a sample topic below.');
+    if (!content.trim() || wordCount < 5 || content.trim().length < 15) {
+      setError('Please provide at least 5 words (15+ characters) of text or select a sample topic below.');
       return;
     }
 
@@ -201,7 +201,7 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
       // Try server endpoint first (with timeout protection)
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 6000);
+        const timeoutId = setTimeout(() => controller.abort(), 18000);
 
         const res = await fetch('/api/generate', {
           method: 'POST',
@@ -367,10 +367,10 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
                 <button
                   type="button"
                   onClick={onOpenExtractor || onOpenOcr}
-                  className="px-2.5 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 rounded-lg flex items-center gap-1.5 transition-colors"
+                  className="px-2.5 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
                 >
-                  <FileText className="w-3.5 h-3.5" />
-                  <span>Extract from Files</span>
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Vision OCR &amp; Files</span>
                 </button>
               )}
 
@@ -435,8 +435,8 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
                 </>
               )}
             </div>
-            {wordCount > 0 && wordCount < 15 && (
-              <span className="text-amber-600 dark:text-amber-400">Aim for at least 15 words for optimal synthesis</span>
+            {wordCount > 0 && wordCount < 5 && (
+              <span className="text-amber-600 dark:text-amber-400">Enter at least 5 words for synthesis</span>
             )}
           </div>
         </div>

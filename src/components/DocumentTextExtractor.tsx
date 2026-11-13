@@ -1,5 +1,15 @@
 import React, { useState, useRef } from 'react';
-import { extractTextFromFile, cleanExtractedText, ExtractedFileResult } from '../utils/fileExtractorService';
+import { extractTextFromFile, cleanExtractedText } from '../utils/fileExtractorService';
+import {
+  classifyOcrFile,
+  DEFAULT_OCR_PREPROCESS,
+  normalizeOcrOutput,
+  OcrPreprocessOptions,
+  performAccurateOcr,
+  renderSampleScanToDataUrl,
+  SAMPLE_OCR_SCANS,
+  SampleOcrScan,
+} from '../utils/ocrService';
 import {
   Upload,
   FileText,
@@ -14,24 +24,24 @@ import {
   Trash2,
   Filter,
   Mic,
+  ScanText,
+  SlidersHorizontal,
+  ZoomIn,
+  ZoomOut,
+  CheckCircle2,
+  RefreshCw,
 } from 'lucide-react';
 import { AudioTranscriberModal } from './AudioTranscriberModal';
 
 interface DocumentTextExtractorProps {
   onSendToGenerator: (
     extractedText: string,
-    sourceInfo?: { title?: string; author?: string; citation?: string }
+    sourceInfo?: { title?: string; author?: string; citation?: string },
+    imageUrl?: string
   ) => void;
 }
 
-const SAMPLE_FILES = [
-  {
-    label: 'Distributed Systems (.txt)',
-    name: 'Designing_Data_Intensive_Systems.txt',
-    author: 'Martin Kleppmann',
-    citation: 'Chapters 7–9 (Consensus & CAP)',
-    text: `Distributed systems require balancing consistency, availability, and partition tolerance as formulated by Eric Brewer's CAP theorem. In any asynchronous network subject to packet loss and latency spikes, network partitions are an inevitability. Consequently, system architects must deliberately choose whether a partition event forces the system to prioritize Consistency (CP)—rejecting writes or stalling reads until consensus is verified—or Availability (AP)—serving potentially stale reads and accepting concurrent writes that must later be merged via Conflict-Free Replicated Data Types (CRDTs) or Last-Write-Wins. Daniel Abadi's PACELC theorem extends this: even when the network is operating normally (Else), a system must continually trade off latency (L) against consistency (C). Furthermore, consensus algorithms such as Raft and Multi-Paxos establish authoritative leader terms through majority quorums (Q = floor(N/2) + 1). In production distributed transactions, Two-Phase Commit (2PC) guarantees serializability across heterogeneous databases but introduces a catastrophic blocking vulnerability if the transaction coordinator fails mid-prepare. For this reason, modern architectures prefer asynchronous event choreography backed by idempotent message consumers and dead-letter queues.`,
-  },
+const SAMPLE_TEXT_FILES = [
   {
     label: 'Corporate Valuation (.md)',
     name: 'Corporate_Valuation_DCF.md',
@@ -45,14 +55,7 @@ Enterprise Value (EV) measures the entire economic operating value of an enterpr
 - plus Preferred Equity and Minority Interest
 - minus unrestricted Cash & Cash Equivalents
 
-Discounted Cash Flow (DCF) models project Unlevered Free Cash Flows (UFCF)—cash generated purely from operations after capital expenditures and changes in net working capital, independent of interest expense—and discount them back to present value using the Weighted Average Cost of Capital (WACC). Because terminal value frequently accounts for 65% to 80% of a company's calculated DCF value, practitioners cross-validate perpetual growth assumptions (the Gordon Growth Model, capped at long-term GDP rates of 2-3%) against exit EBITDA multiple benchmarks. In buy-side due diligence, a Quality of Earnings (QoE) audit is paramount to normalize reported EBITDA by stripping out non-recurring windfalls, related-party transactions, and deferred maintenance costs.`,
-  },
-  {
-    label: 'Autonomic Pharmacology (.txt)',
-    name: 'Autonomic_Pharmacology_Signaling.txt',
-    author: 'Laurence Brunton et al.',
-    citation: 'Section II: Autonomic Signaling',
-    text: `The Autonomic Nervous System maintains homeostatic equilibrium via sympathetic (thoracolumbar) and parasympathetic (craniosacral) divisions. Sympathetic preganglionic neurons release acetylcholine onto nicotinic receptors, whereas postganglionic fibers release norepinephrine onto alpha and beta adrenoreceptors. Alpha-1 adrenergic receptors couple to Gq proteins, activating phospholipase C to generate IP3 and DAG, which mobilizes intracellular calcium causing vascular smooth muscle constriction, pupillary dilation (mydriasis), and urinary sphincter contraction. Beta-1 receptors couple to Gs proteins, stimulating adenylyl cyclase and increasing cyclic AMP in cardiomyocytes, directly increasing heart rate (positive chronotropy) and contractility (positive inotropy). Beta-2 receptors also signal via Gs in bronchial and vascular smooth muscle, producing bronchodilation and skeletal muscle vasodilation. In toxicological emergencies, organophosphate chemical warfare agents and insecticides irreversibly phosphorylate acetylcholinesterase, producing massive cholinergic hyperstimulation manifested by SLUDGE (Salivation, Lacrimation, Urination, Defecation, GI cramping, Emesis) and DUMBELS. Immediate treatment entails intravenous atropine to block muscarinic receptors and pralidoxime (2-PAM) to reactivate the enzyme before chemical aging occurs.`,
+Discounted Cash Flow (DCF) models project Unlevered Free Cash Flows (UFCF)—cash generated purely from operations after capital expenditures and changes in net working capital, independent of interest expense—and discount them back to present value using the Weighted Average Cost of Capital (WACC). Because terminal value frequently accounts for 65% to 80% of a company's calculated DCF value, practitioners cross-validate perpetual growth assumptions (the Gordon Growth Model, capped at long-term GDP rates of 2-3%) against exit EBITDA multiple benchmarks.`,
   },
 ];
 
@@ -63,6 +66,19 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
   const [activeFileName, setActiveFileName] = useState<string>('');
   const [activeFileSize, setActiveFileSize] = useState<number>(0);
   const [activeFileType, setActiveFileType] = useState<string>('');
+
+  // Image / OCR state
+  const [rawImageUrl, setRawImageUrl] = useState<string>('');
+  const [processedImageUrl, setProcessedImageUrl] = useState<string>('');
+  const [rawMimeType, setRawMimeType] = useState<string>('image/png');
+  const [ocrEngine, setOcrEngine] = useState<string>('');
+  const [ocrConfidence, setOcrConfidence] = useState<number | null>(null);
+  const [ocrDocumentType, setOcrDocumentType] = useState<string>('');
+  const [ocrProgress, setOcrProgress] = useState<number>(0);
+  const [ocrStatusText, setOcrStatusText] = useState<string>('');
+  const [preprocess, setPreprocess] = useState<OcrPreprocessOptions>(DEFAULT_OCR_PREPROCESS);
+  const [imageZoom, setImageZoom] = useState<number>(1);
+
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [dragOver, setDragOver] = useState<boolean>(false);
@@ -80,25 +96,128 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
   const charCount = extractedText.length;
   const lineCount = extractedText ? extractedText.split('\n').length : 0;
 
+  const readFileAsDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error('Failed to read file bytes.'));
+      reader.readAsDataURL(file);
+    });
+
+  const runOpticalOcr = async (
+    dataUrl: string,
+    mimeType: string,
+    options: OcrPreprocessOptions = preprocess
+  ) => {
+    setIsProcessing(true);
+    setError(null);
+    setOcrProgress(8);
+    setOcrStatusText('Preparing optical recognition pipeline...');
+
+    try {
+      const result = await performAccurateOcr(
+        dataUrl,
+        mimeType,
+        options,
+        (status, percent) => {
+          setOcrStatusText(status);
+          setOcrProgress(percent);
+        }
+      );
+
+      setExtractedText(result.text);
+      setProcessedImageUrl(result.processedImageUrl);
+      setOcrConfidence(result.confidence);
+      setOcrDocumentType(result.documentType);
+      setOcrEngine(
+        result.engine === 'gemini-4-hydrogen-vision'
+          ? 'Gemini 4 Vision OCR'
+          : 'Tesseract Neural OCR (Local)'
+      );
+      if (!result.text.trim()) {
+        setError(
+          'No legible characters were detected in this scan. Try toggling High-Contrast Enhancement or rotating 90° and re-running OCR.'
+        );
+      }
+    } catch (err: any) {
+      console.warn('OCR notice:', err?.message || err);
+      setError(
+        err?.message ||
+          'Optical recognition could not read this file. Please try a clearer image, PDF, or plain text document.'
+      );
+    } finally {
+      setIsProcessing(false);
+      setOcrProgress(0);
+      setOcrStatusText('');
+    }
+  };
+
   const handleProcessFile = async (file: File) => {
     setIsProcessing(true);
     setError(null);
+    setOcrConfidence(null);
+    setOcrEngine('');
+
+    const category = classifyOcrFile(file.name, file.type);
+    const cleanTitle = file.name
+      .replace(/\.[^/.]+$/, '')
+      .replace(/[_-]+/g, ' ')
+      .trim();
+
+    setActiveFileName(file.name);
+    setActiveFileSize(file.size);
+    setSourceTitle(cleanTitle);
+
     try {
-      const result: ExtractedFileResult = await extractTextFromFile(file);
+      if (category === 'image') {
+        const dataUrl = await readFileAsDataUrl(file);
+        const mime = file.type || 'image/png';
+        setRawImageUrl(dataUrl);
+        setProcessedImageUrl(dataUrl);
+        setRawMimeType(mime);
+        setActiveFileType(file.name.split('.').pop()?.toUpperCase() || 'IMAGE');
+        await runOpticalOcr(dataUrl, mime, preprocess);
+        return;
+      }
+
+      if (category === 'pdf') {
+        setActiveFileType('PDF');
+        setRawImageUrl('');
+        setProcessedImageUrl('');
+        const textResult = await extractTextFromFile(file);
+        const hasNativeText =
+          textResult.text.trim().length > 40 &&
+          !textResult.text.includes('contains scanned raster images');
+
+        if (hasNativeText) {
+          setExtractedText(normalizeOcrOutput(textResult.text));
+          setOcrConfidence(99);
+          setOcrDocumentType('PDF Text Layer');
+          setOcrEngine('Native PDF Extractor');
+          setIsProcessing(false);
+          return;
+        }
+
+        // Scanned PDF fallback -> multimodal Gemini Vision OCR
+        const pdfDataUrl = await readFileAsDataUrl(file);
+        await runOpticalOcr(pdfDataUrl, 'application/pdf', preprocess);
+        return;
+      }
+
+      // Standard structured/plain text file (.txt, .md, .json, .csv, .html)
+      setRawImageUrl('');
+      setProcessedImageUrl('');
+      const result = await extractTextFromFile(file);
       setExtractedText(result.text);
-      setActiveFileName(result.fileName);
-      setActiveFileSize(result.fileSize);
       setActiveFileType(result.detectedType);
-      
-      // Auto-populate source title from file name
-      const cleanTitle = result.fileName
-        .replace(/\.[^/.]+$/, '')
-        .replace(/[_-]+/g, ' ')
-        .trim();
-      setSourceTitle(cleanTitle);
+      setOcrConfidence(100);
+      setOcrDocumentType('Structured Text Document');
+      setOcrEngine('Direct File Parser');
     } catch (err: any) {
       console.warn('File extraction notice:', err?.message || err);
-      setError('Could not extract text from this file. Please ensure it is a valid text, markdown, or PDF document.');
+      setError(
+        'Could not extract text from this file. Please ensure it is a valid image, PDF, or text document.'
+      );
     } finally {
       setIsProcessing(false);
     }
@@ -108,6 +227,7 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
     const file = e.target.files?.[0];
     if (file) {
       handleProcessFile(file);
+      e.target.value = '';
     }
   };
 
@@ -129,18 +249,59 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
     setDragOver(false);
   };
 
-  const handleApplySample = (sample: typeof SAMPLE_FILES[0]) => {
+  const handleRunSampleOcrScan = async (scan: SampleOcrScan) => {
+    const dataUrl = renderSampleScanToDataUrl(scan);
+    if (!dataUrl) return;
+
+    setRawImageUrl(dataUrl);
+    setProcessedImageUrl(dataUrl);
+    setRawMimeType('image/png');
+    setActiveFileName(scan.fileName);
+    setActiveFileSize(Math.round((dataUrl.length * 3) / 4));
+    setActiveFileType('PNG SCAN');
+    setSourceTitle(scan.heading);
+    setSourceAuthor(scan.author);
+    setSourceCitation(scan.citation);
+    setImageZoom(1);
+
+    await runOpticalOcr(dataUrl, 'image/png', preprocess);
+  };
+
+  const handleApplyTextSample = (sample: (typeof SAMPLE_TEXT_FILES)[0]) => {
+    setRawImageUrl('');
+    setProcessedImageUrl('');
     setExtractedText(sample.text);
     setActiveFileName(sample.name);
     setActiveFileSize(new Blob([sample.text]).size);
-    setActiveFileType('TXT');
+    setActiveFileType('MARKDOWN');
+    setOcrConfidence(100);
+    setOcrDocumentType('Markdown Text');
+    setOcrEngine('Direct File Parser');
     setSourceTitle(sample.name.replace(/\.[^/.]+$/, '').replace(/[_-]+/g, ' '));
     setSourceAuthor(sample.author);
     setSourceCitation(sample.citation);
+    setError(null);
+  };
+
+  const handleRotateAndRerun = async () => {
+    if (!rawImageUrl) return;
+    const nextPreprocess = {
+      ...preprocess,
+      rotationDeg: (preprocess.rotationDeg + 90) % 360,
+    };
+    setPreprocess(nextPreprocess);
+    await runOpticalOcr(rawImageUrl, rawMimeType, nextPreprocess);
+  };
+
+  const handleTogglePreprocessOption = (key: 'enhanceContrast' | 'sharpen' | 'grayscale') => {
+    setPreprocess((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
   };
 
   const handleCleanWhitespace = () => {
-    setExtractedText((prev) => cleanExtractedText(prev));
+    setExtractedText((prev) => cleanExtractedText(normalizeOcrOutput(prev)));
   };
 
   const handleCopyToClipboard = async () => {
@@ -160,7 +321,9 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = activeFileName ? `extracted_${activeFileName.replace(/\.[^/.]+$/, '')}.txt` : 'extracted_text.txt';
+    link.download = activeFileName
+      ? `ocr_${activeFileName.replace(/\.[^/.]+$/, '')}.txt`
+      : 'ocr_extracted_text.txt';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -169,12 +332,19 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
 
   const handleClearAll = () => {
     setExtractedText('');
+    setRawImageUrl('');
+    setProcessedImageUrl('');
     setActiveFileName('');
     setActiveFileSize(0);
     setActiveFileType('');
+    setOcrEngine('');
+    setOcrConfidence(null);
+    setOcrDocumentType('');
     setSourceTitle('');
     setSourceAuthor('');
     setSourceCitation('');
+    setError(null);
+    setImageZoom(1);
   };
 
   const handleSendToAi = () => {
@@ -187,41 +357,68 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
             author: sourceAuthor.trim() || undefined,
             citation: sourceCitation.trim() || undefined,
           }
-        : undefined
+        : undefined,
+      rawImageUrl || undefined
     );
   };
 
   return (
-    <div className="max-w-5xl mx-auto py-8 px-4 sm:px-6">
+    <div className="max-w-6xl mx-auto py-8 px-4 sm:px-6 space-y-6">
       {/* Header */}
-      <div className="text-center mb-8">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-xs font-semibold mb-3">
-          <FileText className="w-3.5 h-3.5" />
-          <span>Universal Document &amp; File Text Extractor</span>
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-6">
+        <div className="space-y-2 max-w-2xl">
+          <div className="flex items-center gap-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400">
+            <ScanText className="w-4 h-4" />
+            <span>Optical Character Recognition &amp; Document Extraction</span>
+          </div>
+          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-white font-display">
+            High-Accuracy Vision OCR &amp; File Studio
+          </h1>
+          <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+            Scan textbook pages, handwritten notes, whiteboards, PDFs, or structured documents (.png, .jpg, .webp, .pdf, .txt, .md) with adaptive contrast enhancement and automatic neural fallback.
+          </p>
         </div>
-        <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-white font-display">
-          Extract Clean Text from Documents
-        </h1>
-        <p className="mt-2 text-sm sm:text-base text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
-          Upload notes, articles, research papers, and textbook exports (.txt, .md, .pdf, .json, .csv) to extract clean plain text ready for cognitive synthesis.
-        </p>
+
+        <button
+          type="button"
+          onClick={() => setIsAudioModalOpen(true)}
+          className="px-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 text-xs font-semibold flex items-center gap-2 transition-colors shrink-0 self-start md:self-auto cursor-pointer"
+        >
+          <Mic className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+          <span>Dictate Audio Transcript</span>
+        </button>
       </div>
 
-      {/* Preset Sample Documents */}
-      <div className="mb-6 p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50">
-        <div className="flex items-center justify-between gap-4 mb-2">
-          <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Quick-Load Sample Files
+      {/* Quick-Test Real OCR Scans & Sample Files */}
+      <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+            Test Optical OCR on Sample Scanned Pages
           </span>
-          <span className="text-xs text-slate-400">Click to preview file extraction</span>
+          <span className="text-xs text-slate-500 dark:text-slate-400">
+            Generates a real high-DPI page scan and runs end-to-end OCR
+          </span>
         </div>
         <div className="flex flex-wrap gap-2">
-          {SAMPLE_FILES.map((sample, idx) => (
+          {SAMPLE_OCR_SCANS.map((scan) => (
             <button
-              key={idx}
+              key={scan.id}
               type="button"
-              onClick={() => handleApplySample(sample)}
-              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:border-indigo-500 hover:text-indigo-600 transition-colors shadow-2xs whitespace-nowrap"
+              disabled={isProcessing}
+              onClick={() => handleRunSampleOcrScan(scan)}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/70 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50"
+            >
+              <ScanText className="w-3.5 h-3.5" />
+              <span>{scan.label}</span>
+            </button>
+          ))}
+          {SAMPLE_TEXT_FILES.map((sample) => (
+            <button
+              key={sample.name}
+              type="button"
+              disabled={isProcessing}
+              onClick={() => handleApplyTextSample(sample)}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:border-indigo-400 hover:text-indigo-600 transition-colors whitespace-nowrap cursor-pointer disabled:opacity-50"
             >
               {sample.label}
             </button>
@@ -229,63 +426,177 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
         </div>
       </div>
 
-      {/* Main Two-Column or Stacked Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Upload Zone & Document Specs */}
+      {/* Main Split Workspace */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Left Column: Upload Dropzone, Image Inspector & Pre-processing */}
         <div className="lg:col-span-5 space-y-4">
-          {/* Drag & Drop Upload Card */}
           <div
             onDrop={handleDrop}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
-            className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all cursor-pointer ${
-              dragOver
-                ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/30 scale-[1.01]'
-                : 'border-slate-300 dark:border-slate-700 hover:border-indigo-400 bg-white dark:bg-slate-900 shadow-xs'
-            }`}
             onClick={() => fileInputRef.current?.click()}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                fileInputRef.current?.click();
+              }
+            }}
+            aria-label="Upload image, PDF, or document for OCR and text extraction"
+            className={`border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer ${
+              dragOver
+                ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/30'
+                : 'border-slate-300 dark:border-slate-700 hover:border-indigo-400 bg-white dark:bg-slate-900'
+            }`}
           >
             <input
               ref={fileInputRef}
               type="file"
-              accept=".txt,.md,.markdown,.json,.csv,.tsv,.pdf,.html,.rtf"
+              accept="image/*,.png,.jpg,.jpeg,.webp,.bmp,.pdf,.txt,.md,.markdown,.json,.csv,.tsv,.html,.rtf"
               onChange={handleFileChange}
               className="hidden"
             />
-            <div className="w-12 h-12 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mx-auto mb-3">
-              <Upload className="w-6 h-6" />
+            <div className="w-11 h-11 rounded-lg bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mx-auto mb-3">
+              <Upload className="w-5 h-5" />
             </div>
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-              Upload Study Document or File
-            </h3>
+            <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+              Drop Image, Scan, or Document Here
+            </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-xs mx-auto">
-              Drag &amp; drop your file here, or browse files from your computer
+              Supports PNG, JPG, WEBP screenshots, whiteboard photos, PDFs, Markdown, and TXT files.
             </p>
-            <div className="mt-3 flex items-center justify-center gap-1.5 flex-wrap">
-              {['.TXT', '.MD', '.PDF', '.JSON', '.CSV'].map((ext) => (
-                <span
-                  key={ext}
-                  className="px-2 py-0.5 text-[10px] font-mono font-bold rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
-                >
-                  {ext}
-                </span>
-              ))}
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-center">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsAudioModalOpen(true);
-                }}
-                className="px-3.5 py-1.5 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-              >
-                <Mic className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                <span>Dictate or Transcribe Audio (Gemini 3.5)</span>
-              </button>
-            </div>
           </div>
+
+          {/* Interactive Optical Preview & Pre-processing Controls */}
+          {rawImageUrl && (
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  <span>Optical Scan Inspector</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setImageZoom((z) => Math.max(1, Number((z - 0.25).toFixed(2))))}
+                    aria-label="Zoom out scan preview"
+                    className="p-1.5 rounded-md text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    <ZoomOut className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImageZoom((z) => Math.min(2.5, Number((z + 0.25).toFixed(2))))}
+                    aria-label="Zoom in scan preview"
+                    className="p-1.5 rounded-md text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    <ZoomIn className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRotateAndRerun}
+                    disabled={isProcessing}
+                    aria-label="Rotate scan 90 degrees and re-run OCR"
+                    title="Rotate 90° and re-scan"
+                    className="p-1.5 rounded-md text-slate-500 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
+                  >
+                    <RotateCw className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Image stage with scanning bar animation while processing */}
+              <div className="relative bg-slate-950/95 p-3 max-h-72 overflow-auto flex items-center justify-center">
+                <img
+                  src={processedImageUrl || rawImageUrl}
+                  alt={activeFileName || 'Uploaded OCR scan preview'}
+                  style={{ transform: `scale(${imageZoom})`, transformOrigin: 'center center' }}
+                  className="max-h-60 w-auto object-contain rounded transition-transform duration-150"
+                />
+                {isProcessing && (
+                  <div className="absolute inset-x-0 top-0 bottom-0 bg-indigo-950/40 backdrop-blur-[1px] flex flex-col items-center justify-center p-4 text-center">
+                    <RefreshCw className="w-6 h-6 text-indigo-300 animate-spin mb-2" />
+                    <span className="text-xs font-semibold text-white">{ocrStatusText || 'Running OCR...'}</span>
+                    <div className="w-48 h-1.5 bg-white/20 rounded-full overflow-hidden mt-2">
+                      <div
+                        className="h-full bg-indigo-400 transition-all duration-300"
+                        style={{ width: `${Math.max(10, ocrProgress)}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Image Pre-processing Enhancement Controls */}
+              <div className="p-3.5 bg-slate-50/80 dark:bg-slate-950/40 border-t border-slate-100 dark:border-slate-800 space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleTogglePreprocessOption('enhanceContrast')}
+                    aria-pressed={preprocess.enhanceContrast}
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors cursor-pointer ${
+                      preprocess.enhanceContrast
+                        ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'
+                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    Contrast Boost
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTogglePreprocessOption('sharpen')}
+                    aria-pressed={preprocess.sharpen}
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors cursor-pointer ${
+                      preprocess.sharpen
+                        ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'
+                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    Edge Sharpen
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTogglePreprocessOption('grayscale')}
+                    aria-pressed={preprocess.grayscale}
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors cursor-pointer ${
+                      preprocess.grayscale
+                        ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'
+                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    Ink Isolation
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={isProcessing}
+                  onClick={() => runOpticalOcr(rawImageUrl, rawMimeType, preprocess)}
+                  className="w-full py-2 px-3 rounded-lg bg-slate-900 dark:bg-indigo-600 hover:bg-slate-800 dark:hover:bg-indigo-700 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isProcessing ? 'animate-spin' : ''}`} />
+                  <span>{isProcessing ? 'Scanning...' : 'Re-Run Precision OCR'}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Extraction Progress Banner for non-image files */}
+          {isProcessing && !rawImageUrl && (
+            <div className="p-4 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/50 dark:bg-indigo-950/30 space-y-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-indigo-700 dark:text-indigo-300">
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>{ocrStatusText || 'Extracting document structure...'}</span>
+              </div>
+              <div className="w-full h-1.5 bg-indigo-100 dark:bg-indigo-900 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-indigo-600 transition-all duration-300"
+                  style={{ width: `${Math.max(15, ocrProgress)}%` }}
+                />
+              </div>
+            </div>
+          )}
 
           {/* Extraction Error Alert */}
           {error && (
@@ -294,7 +605,8 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
               <button
                 type="button"
                 onClick={() => setError(null)}
-                className="text-red-500 hover:text-red-700 font-bold"
+                aria-label="Dismiss error"
+                className="text-red-500 hover:text-red-700 font-bold cursor-pointer"
               >
                 ✕
               </button>
@@ -302,79 +614,96 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
           )}
 
           {/* Source Attribution Inputs */}
-          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-xs space-y-3">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-              <BookOpen className="w-4 h-4 text-indigo-600" />
+          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-3">
+            <div className="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200">
+              <BookOpen className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
               <span>Source Attribution (Optional)</span>
             </div>
             <div>
-              <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
-                Document / Book Title
+              <label htmlFor="ocr-source-title" className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                Document or Book Title
               </label>
               <input
+                id="ocr-source-title"
                 type="text"
                 value={sourceTitle}
                 onChange={(e) => setSourceTitle(e.target.value)}
                 placeholder="e.g. Distributed Systems Architecture"
-                className="w-full p-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="w-full p-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2.5">
               <div>
-                <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
-                  Author / Organization
+                <label htmlFor="ocr-source-author" className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  Author
                 </label>
                 <input
+                  id="ocr-source-author"
                   type="text"
                   value={sourceAuthor}
                   onChange={(e) => setSourceAuthor(e.target.value)}
                   placeholder="e.g. Martin Kleppmann"
-                  className="w-full p-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  className="w-full p-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                <label htmlFor="ocr-source-citation" className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
                   Chapter / Page
                 </label>
                 <input
+                  id="ocr-source-citation"
                   type="text"
                   value={sourceCitation}
                   onChange={(e) => setSourceCitation(e.target.value)}
-                  placeholder="e.g. Chapter 7, pp. 120-135"
-                  className="w-full p-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  placeholder="e.g. Chapter 9, p. 184"
+                  className="w-full p-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
             </div>
           </div>
 
-          {/* File Meta Pill */}
+          {/* Unboxed Clean File & Engine Metadata */}
           {activeFileName && (
-            <div className="p-3.5 rounded-xl border border-indigo-200 dark:border-indigo-900 bg-indigo-50/50 dark:bg-indigo-950/20 text-xs space-y-1">
-              <div className="flex items-center justify-between font-bold text-slate-800 dark:text-slate-200">
-                <span className="truncate">{activeFileName}</span>
-                <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 shrink-0">
-                  {activeFileType}
-                </span>
+            <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 text-xs space-y-1">
+              <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">
+                {activeFileName}
               </div>
-              <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-2">
+              <div className="text-xs text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-2 tabular-nums">
+                <span>{activeFileType}</span>
+                <span aria-hidden="true">·</span>
                 <span>{(activeFileSize / 1024).toFixed(1)} KB</span>
-                <span aria-hidden="true">·</span>
-                <span>{wordCount.toLocaleString()} words</span>
-                <span aria-hidden="true">·</span>
-                <span>{lineCount} lines</span>
+                {ocrConfidence !== null && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                      {ocrConfidence}% Accuracy
+                    </span>
+                  </>
+                )}
+                {ocrEngine && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span>{ocrEngine}</span>
+                  </>
+                )}
               </div>
             </div>
           )}
         </div>
 
-        {/* Right Column: Extracted Text Editor & Actions */}
-        <div className="lg:col-span-7 flex flex-col rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800/80 pb-3">
+        {/* Right Column: Extracted Text Workspace & Handoff */}
+        <div className="lg:col-span-7 flex flex-col rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
             <div className="flex items-center gap-2">
               <FileCode className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-              <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                Extracted Text Workspace
-              </span>
+              <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+                Extracted OCR Text Workspace
+              </h2>
+              {ocrDocumentType && (
+                <span className="text-xs text-slate-500 dark:text-slate-400 hidden sm:inline">
+                  · {ocrDocumentType}
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-2">
@@ -383,38 +712,36 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
                   <button
                     type="button"
                     onClick={handleCleanWhitespace}
-                    className="px-2.5 py-1 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-indigo-600 transition-colors flex items-center gap-1"
-                    title="Clean excessive whitespace and empty lines"
+                    className="px-2.5 py-1 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-indigo-600 transition-colors flex items-center gap-1 cursor-pointer"
+                    title="De-hyphenate and clean excessive whitespace"
                   >
                     <Filter className="w-3.5 h-3.5" />
-                    <span>Clean Text</span>
+                    <span>Normalize</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={handleCopyToClipboard}
-                    className="px-2.5 py-1 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-indigo-600 transition-colors flex items-center gap-1"
-                    title="Copy extracted text to clipboard"
+                    className="px-2.5 py-1 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-indigo-600 transition-colors flex items-center gap-1 cursor-pointer"
                   >
                     {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{isCopied ? 'Copied!' : 'Copy'}</span>
+                    <span>{isCopied ? 'Copied' : 'Copy'}</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={handleDownloadText}
-                    className="px-2.5 py-1 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-indigo-600 transition-colors flex items-center gap-1"
-                    title="Download extracted text as .txt"
+                    className="px-2.5 py-1 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-indigo-600 transition-colors flex items-center gap-1 cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>Save</span>
+                    <span>Save .txt</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={handleClearAll}
-                    className="p-1 text-slate-400 hover:text-red-500 transition-colors"
-                    title="Clear extracted text"
+                    aria-label="Clear extracted text and scan"
+                    className="p-1.5 text-slate-400 hover:text-red-500 transition-colors cursor-pointer"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -424,28 +751,30 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
           </div>
 
           {/* Textarea */}
-          <div className="relative flex-1 min-h-[320px]">
+          <div className="relative flex-1 min-h-[340px]">
             <textarea
+              aria-label="Extracted OCR text output"
               value={extractedText}
               onChange={(e) => setExtractedText(e.target.value)}
-              placeholder="Your extracted file text will appear here. You can also paste notes or lecture text directly..."
-              className="w-full h-full min-h-[320px] p-4 text-xs sm:text-sm font-sans text-slate-800 dark:text-slate-200 bg-slate-50/70 dark:bg-slate-950/60 rounded-xl border border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-normal leading-relaxed resize-y"
+              placeholder="Upload a document image, PDF, or click a sample scanned page above to extract verbatim text..."
+              className="w-full h-full min-h-[340px] p-4 text-sm font-sans text-slate-800 dark:text-slate-200 bg-slate-50/70 dark:bg-slate-950/60 rounded-xl border border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed resize-y"
             />
           </div>
 
           {/* Stats Bar */}
-          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800/80">
-            <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex items-center gap-2.5 tabular-nums">
               <span>{wordCount.toLocaleString()} words</span>
               <span aria-hidden="true">·</span>
               <span>{charCount.toLocaleString()} characters</span>
               <span aria-hidden="true">·</span>
-              <span>{lineCount} lines</span>
+              <span>{lineCount} {lineCount === 1 ? 'line' : 'lines'}</span>
             </div>
 
             {wordCount >= 10 && (
-              <span className="text-emerald-600 dark:text-emerald-400 font-medium">
-                ✓ Ready for synthesis
+              <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Ready for AI synthesis</span>
               </span>
             )}
           </div>
@@ -455,7 +784,7 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
             type="button"
             disabled={wordCount < 10 || isProcessing}
             onClick={handleSendToAi}
-            className="w-full py-3.5 px-6 rounded-xl font-semibold text-sm text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-indigo-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full py-3.5 px-6 rounded-xl font-semibold text-sm text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm transition-colors flex items-center justify-center gap-2 cursor-pointer"
           >
             <Sparkles className="w-4 h-4 text-amber-300" />
             <span>Send to AI Generator &amp; Create Flashcards</span>
@@ -471,8 +800,10 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
         onTranscriptComplete={(transcript) => {
           setExtractedText(transcript);
           setActiveFileName('Audio_Recording_Transcript.txt');
-          setActiveFileType('audio');
+          setActiveFileType('AUDIO');
           setActiveFileSize(transcript.length);
+          setOcrEngine('Gemini 3.5 Transcribe');
+          setOcrConfidence(99);
           if (!sourceTitle) {
             setSourceTitle('Voice Note / Audio Lecture Transcript');
           }

@@ -153,10 +153,11 @@ export default function App() {
         {currentView === 'overview' && (
           <EnterpriseOverview
             onLaunchGenerator={() => setCurrentView('generator')}
+            onOpenOcr={() => setCurrentView('extractor')}
             onExploreDecks={() => setCurrentView('decks')}
             onOpenStudy={() => {
               setCurrentDeckId(SAMPLE_DECKS[0].id);
-              setCurrentView('summary');
+              setCurrentView('study');
             }}
           />
         )}
@@ -178,9 +179,10 @@ export default function App() {
 
         {(currentView === 'extractor' || currentView === 'ocr') && (
           <DocumentTextExtractor
-            onSendToGenerator={(text, sourceInfo) => {
+            onSendToGenerator={(text, sourceInfo, imageUrl) => {
               setInitialExtractedText(text);
               setInitialExtractedSource(sourceInfo);
+              setInitialExtractedImageUrl(imageUrl || '');
               setCurrentView('generator');
             }}
           />
@@ -248,47 +250,53 @@ export default function App() {
               AR
             </div>
             <div>
-              <span className="font-bold text-slate-800 dark:text-slate-200 text-sm">AR Site</span>
-              <span className="text-slate-400 ml-2">© {new Date().getFullYear()} AR Site Global Enterprises. All rights reserved.</span>
+              <span className="font-bold text-slate-800 dark:text-slate-200 text-sm">AR Site Inc.</span>
+              <span className="text-slate-400 ml-2">© {new Date().getFullYear()} AR Site Global Cognitive Technologies. All rights reserved.</span>
             </div>
           </div>
-          <div className="flex items-center gap-5 text-xs font-medium">
+          <div className="flex flex-wrap items-center justify-center gap-5 text-xs font-medium">
             <button
+              type="button"
               onClick={() => setCurrentView('overview')}
-              className="hover:text-slate-900 dark:hover:text-white transition-colors"
+              className="hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
             >
-              Enterprise Overview
+              Company Overview
             </button>
             <button
+              type="button"
+              onClick={() => setCurrentView('extractor')}
+              className="hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
+            >
+              Precision OCR
+            </button>
+            <button
+              type="button"
+              onClick={() => setCurrentView('generator')}
+              className="hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
+            >
+              AI Synthesis Studio
+            </button>
+            <button
+              type="button"
               onClick={() => setCurrentView('summary')}
-              className="hover:text-slate-900 dark:hover:text-white transition-colors"
+              className="hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
             >
               Summary Hub
             </button>
             <button
-              onClick={() => setCurrentView('generator')}
-              className="hover:text-slate-900 dark:hover:text-white transition-colors"
-            >
-              AI Generator
-            </button>
-            <button
-              onClick={() => setCurrentView('extractor')}
-              className="hover:text-slate-900 dark:hover:text-white transition-colors"
-            >
-              Text Extractor (Files)
-            </button>
-            <button
+              type="button"
               onClick={() => setCurrentView('decks')}
-              className="hover:text-slate-900 dark:hover:text-white transition-colors"
+              className="hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
             >
               Study Decks
             </button>
             <button
+              type="button"
               onClick={() => {
                 setDecks(SAMPLE_DECKS);
                 setCurrentDeckId(SAMPLE_DECKS[0].id);
               }}
-              className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+              className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer"
             >
               Reset Sample Decks
             </button>

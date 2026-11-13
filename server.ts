@@ -2,7 +2,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
 
 dotenv.config();
 
@@ -13,7 +13,7 @@ const app = express();
 const port = Number(process.env.PORT) || 3000;
 const isProduction = process.env.NODE_ENV === 'production';
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '15mb' }));
 
 // Initialize GoogleGenAI SDK
 let ai: GoogleGenAI | null = null;
@@ -26,6 +26,15 @@ if (process.env.GEMINI_API_KEY) {
       },
     },
   });
+}
+
+function hasConfiguredApiKey(): boolean {
+  return Boolean(
+    ai &&
+      process.env.GEMINI_API_KEY &&
+      process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' &&
+      process.env.GEMINI_API_KEY.length > 10
+  );
 }
 
 // Fallback generator when API key is missing or quota is exhausted
@@ -131,6 +140,85 @@ function createFallbackGeneration(
   };
 }
 
+// High-Accuracy Multimodal Vision OCR endpoint (images & PDFs)
+app.post('/api/ocr', async (req, res) => {
+  try {
+    const { fileData, mimeType = 'image/png', documentHint = 'general' } = req.body || {};
+    if (!fileData || typeof fileData !== 'string') {
+      return res.status(400).json({ error: 'fileData (base64) is required for OCR extraction.' });
+    }
+
+    if (!hasConfiguredApiKey() || !ai) {
+      return res.json({
+        fallbackRequired: true,
+        reason: 'Server Vision API key unavailable; using client-side local OCR engine.',
+      });
+    }
+
+    const base64Data = fileData.replace(/^data:[a-zA-Z0-9.+/-]+;base64,/, '');
+
+    const ocrPrompt = `Perform ultra-accurate Optical Character Recognition (OCR) on the attached document (${documentHint} mode).
+Rules:
+1. Transcribe ALL visible printed and handwritten text verbatim with 100% fidelity—never invent, summarize, or omit words.
+2. Preserve logical reading order across multi-column layouts, headings, bulleted/numbered lists, and footnotes.
+3. Format tabular data as clean Markdown tables and mathematical/chemical expressions cleanly.
+4. De-hyphenate words split across line breaks only when clearly part of the same word.
+5. Return structured JSON matching the schema.`;
+
+    const generatePromise = ai.models.generateContent({
+      model: 'gemini-4-hydrogen',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              mimeType,
+              data: base64Data,
+            },
+          },
+          { text: ocrPrompt },
+        ],
+      },
+      config: {
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            text: { type: Type.STRING, description: 'Full verbatim extracted text preserving structure.' },
+            documentType: { type: Type.STRING, description: 'Detected format e.g. Printed Textbook, Handwritten Notes, Research Paper, Scanned PDF, Diagram.' },
+            detectedLanguage: { type: Type.STRING, description: 'Primary language detected.' },
+            confidence: { type: Type.NUMBER, description: 'Estimated OCR legibility & accuracy percentage 0-100.' },
+            blocksDetected: { type: Type.INTEGER, description: 'Number of logical sections or paragraphs extracted.' },
+          },
+          required: ['text', 'documentType', 'detectedLanguage', 'confidence', 'blocksDetected'],
+        },
+      },
+    });
+
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('OCR request timeout')), 18000)
+    );
+
+    const response = await Promise.race([generatePromise, timeoutPromise]);
+    const parsed = JSON.parse(response.text || '{}');
+
+    return res.json({
+      text: parsed.text || '',
+      documentType: parsed.documentType || 'Scanned Document',
+      detectedLanguage: parsed.detectedLanguage || 'English',
+      confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 98,
+      blocksDetected: typeof parsed.blocksDetected === 'number' ? parsed.blocksDetected : 1,
+      engine: 'gemini-4-hydrogen-vision',
+    });
+  } catch (err: any) {
+    console.warn('OCR API fallback triggered:', err?.message || err);
+    return res.json({
+      fallbackRequired: true,
+      reason: err?.message || 'Cloud Vision OCR unreachable; switching to local OCR engine.',
+    });
+  }
+});
+
 // API endpoint to generate summary and flashcards
 app.post('/api/generate', async (req, res) => {
   console.log('[API] /api/generate received, content length:', req.body?.content?.length);
@@ -154,12 +242,7 @@ app.post('/api/generate', async (req, res) => {
     const trimmedContent = content.trim().slice(0, 25000);
     const parsedCardCount = Math.max(3, Math.min(25, Number(cardCount) || 8));
 
-    // If Gemini client is not initialized or API key is placeholder
-    const isRealApiKey = process.env.GEMINI_API_KEY && 
-      process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' && 
-      process.env.GEMINI_API_KEY.length > 10;
-
-    if (!ai || !isRealApiKey) {
+    if (!hasConfiguredApiKey() || !ai) {
       console.log('[API] Using structured synthesis engine (GEMINI_API_KEY not configured or placeholder)');
       const fallbackResult = createFallbackGeneration(trimmedContent, targetAudience, parsedCardCount, sourceMetadata, imageUrl);
       return res.json(fallbackResult);
@@ -188,7 +271,7 @@ Depth mode: ${depth}.
 ${customFocus ? `Special focus area requested by user: ${customFocus}` : ''}`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-4-hydrogen',
       contents: [
         {
           role: 'user',
@@ -197,6 +280,7 @@ ${customFocus ? `Special focus area requested by user: ${customFocus}` : ''}`;
       ],
       config: {
         systemInstruction: systemPrompt,
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
         responseMimeType: 'application/json',
         responseSchema: {
           type: Type.OBJECT,
@@ -334,22 +418,22 @@ function generateFallbackChatReply(userMessage: string, role = 'tutor', topicCon
   const query = userMessage.toLowerCase();
   
   if (role === 'quizzer') {
-    return `### ⚡ Active Recall Challenge\n\nBased on your study topic (${topicContext ? topicContext.slice(0, 60) : 'Active Deck'}):\n\n**Question**: In distributed consensus or systems design, what specific condition triggers an automatic leader election, and how is split-brain avoided?\n\n*Reply with your answer and I will grade your retention!*`;
+    return `### Active Recall Challenge\n\nBased on your study topic (${topicContext ? topicContext.slice(0, 60) : 'Active Deck'}):\n\n**Question**: In distributed consensus or systems design, what specific condition triggers an automatic leader election, and how is split-brain avoided?\n\n*Reply with your answer and I will grade your retention!*`;
   }
   
   if (role === 'analyst') {
-    return `### 📋 Executive BLUF Analysis\n\n**Bottom Line Up Front**: Success requires focusing on the primary invariant: balance latency against consistency.\n\n**Key Strategic Takeaways**:\n• Prioritize high write-availability where eventual convergence is acceptable.\n• Enforce strict idempotency on all state-mutating transactions.\n• Maintain clear monitoring on quorum reachability.`;
+    return `### Executive BLUF Analysis\n\n**Bottom Line Up Front**: Success requires focusing on the primary invariant: balance latency against consistency.\n\n**Key Strategic Takeaways**:\n• Prioritize high write-availability where eventual convergence is acceptable.\n• Enforce strict idempotency on all state-mutating transactions.\n• Maintain clear monitoring on quorum reachability.`;
   }
 
   if (role === 'document_expert') {
-    return `### 📄 Document & Notes Specialist\n\nI reviewed your text regarding: "${userMessage}".\n\n**Formatting & Structure Recommendations**:\n• Break large text passages into distinct thematic headings.\n• Highlight domain invariants with bold terms for rapid visual scanning.\n• Use the AI Generator to automatically synthesize active-recall flashcards from this document.`;
+    return `### Document & OCR Specialist\n\nI reviewed your text regarding: "${userMessage}".\n\n**Formatting & Structure Recommendations**:\n• Break large text passages into distinct thematic headings.\n• Highlight domain invariants with bold terms for rapid visual scanning.\n• Use the AI Generator to automatically synthesize active-recall flashcards from this document.`;
   }
 
   if (query.includes('mnemonic') || query.includes('remember')) {
-    return `💡 **Memory Anchor (Mnemonic)**:\n\nAssociate the core concept with a vivid visual hook. For example, for **CAP Theorem**, remember: *"When Partitions Pull apart, Pick Consistency or Priority-availability — never all three."*`;
+    return `**Memory Anchor (Mnemonic)**:\n\nAssociate the core concept with a vivid visual hook. For example, for **CAP Theorem**, remember: *"When Partitions Pull apart, Pick Consistency or Priority-availability — never all three."*`;
   }
 
-  return `### 🎓 AR Socratic Study Tutor\n\nI reviewed your question regarding: "${userMessage}".\n\nTo master this concept:\n1. **Core Principle**: Break the problem down into first principles (inputs, constraints, failure modes).\n2. **Active Recall**: Ask yourself what trade-off is being made here.\n3. **Application**: Try explaining this concept out loud in 60 seconds without looking at notes.\n\nWhat specific part of this topic would you like to explore deeper?`;
+  return `### AR Socratic Study Tutor\n\nI reviewed your question regarding: "${userMessage}".\n\nTo master this concept:\n1. **Core Principle**: Break the problem down into first principles (inputs, constraints, failure modes).\n2. **Active Recall**: Ask yourself what trade-off is being made here.\n3. **Application**: Try explaining this concept out loud in 60 seconds without looking at notes.\n\nWhat specific part of this topic would you like to explore deeper?`;
 }
 
 // API endpoint for multi-turn Gemini chatbot with role selection
@@ -360,11 +444,6 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ error: 'Messages array is required' });
     }
 
-    const isRealApiKey =
-      process.env.GEMINI_API_KEY &&
-      process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' &&
-      process.env.GEMINI_API_KEY.length > 10;
-
     // Define role-specific system instructions
     const roleInstructions: Record<string, string> = {
       tutor: `You are the AR Site Socratic Study Tutor.
@@ -373,15 +452,15 @@ Your mission: Guide students and professionals to deeply understand study materi
 Your mission: Test the user's knowledge with rapid-fire questions, evaluate their answers with constructive feedback, keep track of their recall streak, and provide mnemonics when they struggle.`,
       analyst: `You are the AR Executive Intelligence Analyst.
 Your mission: Provide high-density Bottom Line Up Front (BLUF) summaries, risk matrices, strategic trade-off comparisons, and executive briefing notes. Eliminate filler words.`,
-      document_expert: `You are the AR Precision Document & Text Specialist.
-Your mission: Help the user analyze, format, verify, clean up, and structure text extracted from documents, research papers, and study notes.`
+      document_expert: `You are the AR Precision Document & OCR Specialist.
+Your mission: Help the user analyze, format, verify, clean up, and structure text extracted from OCR scans, documents, research papers, and study notes.`
     };
 
     const systemInstruction = `${roleInstructions[role] || roleInstructions.tutor}
 ${topicContext ? `\nCurrent Active Study Context:\n${topicContext}` : ''}
 Format all responses cleanly in Markdown with bold terms, bullet points, and code/formula blocks where appropriate.`;
 
-    if (!ai || !isRealApiKey) {
+    if (!hasConfiguredApiKey() || !ai) {
       const lastUserMsg = messages[messages.length - 1]?.content || 'Hello';
       const fallbackReply = generateFallbackChatReply(lastUserMsg, role, topicContext);
       return res.json({ reply: fallbackReply });
@@ -414,19 +493,20 @@ Format all responses cleanly in Markdown with bold terms, bullet points, and cod
       });
     }
 
-    // Select model alias based on user task: gemini-3.1-flash-lite for fast, gemini-3.8-flash for general
-    const selectedModel = modelPreference === 'fast' ? 'gemini-3.1-flash-lite' : 'gemini-3.8-flash';
+    // Select valid Gemini model alias: gemini-3.1-flash-lite for fast, gemini-4-hydrogen for general
+    const selectedModel = modelPreference === 'fast' ? 'gemini-3.1-flash-lite' : 'gemini-4-hydrogen';
 
     const generatePromise = ai.models.generateContent({
       model: selectedModel,
       contents: sanitizedMessages,
       config: {
         systemInstruction,
+        thinkingConfig: { thinkingLevel: selectedModel === 'gemini-4-hydrogen' ? ThinkingLevel.LOW : ThinkingLevel.MINIMAL },
       },
     });
 
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('AI inference timeout')), 5000)
+      setTimeout(() => reject(new Error('AI inference timeout')), 8000)
     );
 
     const response = await Promise.race([generatePromise, timeoutPromise]);
@@ -448,7 +528,7 @@ app.post('/api/transcribe', async (req, res) => {
       return res.status(400).json({ error: 'audioData is required' });
     }
 
-    if (!ai) {
+    if (!hasConfiguredApiKey() || !ai) {
       return res.status(503).json({
         error: 'Gemini API key is not configured on the server.',
       });

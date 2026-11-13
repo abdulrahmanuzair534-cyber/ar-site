@@ -138,17 +138,15 @@ export const DeckMasteryChart: React.FC<DeckMasteryChartProps> = ({
       {/* Header with Title, Badge, and Quiz Action */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800/80">
         <div className="space-y-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <TrendingUp className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
             <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white font-display">
               Cognitive Mastery &amp; Retention Curve
             </h2>
-            <div
-              className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${badge.bg}`}
-            >
-              <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} />
-              <span>{stats.masteryLevel}</span>
-            </div>
+            <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">·</span>
+            <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">
+              {stats.masteryLevel}
+            </span>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400">
             {badge.desc}

@@ -102,7 +102,7 @@ export const QuizMode: React.FC<QuizModeProps> = ({
 
   // Completion Screen
   if (isCompleted) {
-    const percentage = Math.round((score / questions.length) * 100);
+    const percentage = questions.length > 0 ? Math.round((score / questions.length) * 100) : 0;
     return (
       <div className="max-w-2xl mx-auto py-12 px-4 sm:px-6">
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-8 text-center shadow-sm">

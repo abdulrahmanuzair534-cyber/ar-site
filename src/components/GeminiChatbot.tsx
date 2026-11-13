@@ -29,6 +29,46 @@ interface GeminiChatbotProps {
   activeDeck?: SummaryDocument;
 }
 
+function renderFormattedInline(text: string): React.ReactNode[] {
+  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={i} className="font-semibold">{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
+      return <em key={i} className="italic">{part.slice(1, -1)}</em>;
+    }
+    if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
+      return (
+        <code key={i} className="px-1 py-0.5 rounded bg-slate-200/70 dark:bg-slate-700 font-mono text-[11px]">
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    return <React.Fragment key={i}>{part}</React.Fragment>;
+  });
+}
+
+function renderFormattedMessage(content: string): React.ReactNode {
+  const lines = content.split('\n');
+  return (
+    <div className="space-y-1.5">
+      {lines.map((line, idx) => {
+        const trimmed = line.trim();
+        if (!trimmed) return <div key={idx} className="h-1" />;
+        if (trimmed.startsWith('### ')) {
+          return (
+            <div key={idx} className="font-bold text-xs text-slate-900 dark:text-white pt-0.5">
+              {renderFormattedInline(trimmed.slice(4))}
+            </div>
+          );
+        }
+        return <div key={idx}>{renderFormattedInline(line)}</div>;
+      })}
+    </div>
+  );
+}
+
 export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({ activeDeck }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -225,19 +265,14 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({ activeDeck }) => {
       {/* Floating Trigger Button (When closed) */}
       {!isOpen && (
         <button
+          type="button"
           onClick={() => setIsOpen(true)}
-          className="group relative flex items-center gap-2.5 px-4 py-3 rounded-full bg-gradient-to-r from-indigo-600 via-indigo-700 to-indigo-800 text-white shadow-xl shadow-indigo-600/30 hover:shadow-indigo-600/50 hover:scale-105 active:scale-95 transition-all cursor-pointer border border-indigo-400/40"
-          title="Open AR Gemini AI Study Assistant"
-          aria-label="Open AR Gemini AI Study Assistant"
+          className="group relative flex items-center gap-2.5 px-4 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-600/25 transition-all cursor-pointer border border-indigo-400/40"
+          title="Open AR AI Study Assistant"
+          aria-label="Open AR AI Study Assistant"
         >
-          <div className="relative">
-            <Sparkles className="w-5 h-5 text-amber-300 animate-pulse" />
-            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-400 rounded-full ring-2 ring-indigo-700" />
-          </div>
-          <span className="font-semibold text-xs tracking-wide">AR AI Assistant</span>
-          <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-white/20 text-indigo-100">
-            Gemini
-          </span>
+          <Sparkles className="w-4 h-4 text-amber-300" />
+          <span className="font-semibold text-xs tracking-wide whitespace-nowrap">AR AI Assistant</span>
         </button>
       )}
 
@@ -259,10 +294,9 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({ activeDeck }) => {
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
                   <h3 className="font-bold text-xs truncate">AR Study Assistant</h3>
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" title="Gemini 3.8 Flash Online" />
                 </div>
                 <p className="text-[10px] text-indigo-100 truncate">
-                  {speedMode === 'fast' ? 'gemini-3.1-flash-lite' : 'gemini-3.8-flash'}
+                  {speedMode === 'fast' ? 'gemini-3.1-flash-lite' : 'gemini-4-hydrogen'}
                 </p>
               </div>
             </div>
@@ -337,11 +371,12 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({ activeDeck }) => {
 
                 {/* Speed Mode Toggle */}
                 <button
+                  type="button"
                   onClick={() => setSpeedMode((m) => (m === 'standard' ? 'fast' : 'standard'))}
-                  className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-indigo-600"
-                  title="Switch between gemini-3.8-flash and gemini-3.1-flash-lite"
+                  className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-indigo-600 cursor-pointer"
+                  title="Switch between gemini-4-hydrogen and gemini-3.1-flash-lite"
                 >
-                  {speedMode === 'fast' ? '⚡ Fast Lite' : '✨ Flash 3.8'}
+                  {speedMode === 'fast' ? 'Fast Lite' : 'Gemini 4'}
                 </button>
               </div>
 
@@ -366,7 +401,11 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({ activeDeck }) => {
                           : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700/80 rounded-bl-xs shadow-xs'
                       }`}
                     >
-                      <div className="whitespace-pre-wrap">{msg.content}</div>
+                      {msg.role === 'assistant' ? (
+                        renderFormattedMessage(msg.content)
+                      ) : (
+                        <div className="whitespace-pre-wrap">{msg.content}</div>
+                      )}
                       <span
                         className={`block text-[9px] mt-1 text-right ${
                           msg.role === 'user' ? 'text-indigo-200' : 'text-slate-400'

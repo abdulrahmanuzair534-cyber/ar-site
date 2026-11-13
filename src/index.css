@@ -19,9 +19,12 @@
   }
 }
 
-/* 3D card perspective for flip animations */
+/* 3D card perspective for flip, tilt, and deck depth animations */
 .perspective-1000 {
   perspective: 1000px;
+}
+.perspective-1400 {
+  perspective: 1400px;
 }
 .transform-style-3d {
   transform-style: preserve-3d;
@@ -32,6 +35,25 @@
 }
 .rotate-y-180 {
   transform: rotateY(180deg);
+}
+
+@keyframes tts-bar-pulse {
+  0%, 100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.animate-tts-bar-1 {
+  animation: tts-bar-pulse 0.75s ease-in-out infinite;
+}
+.animate-tts-bar-2 {
+  animation: tts-bar-pulse 0.75s ease-in-out 0.18s infinite;
+}
+.animate-tts-bar-3 {
+  animation: tts-bar-pulse 0.75s ease-in-out 0.36s infinite;
 }
 
 /* Custom scrollbars */
