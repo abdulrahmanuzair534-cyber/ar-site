@@ -2,33 +2,44 @@ import React, { useState, useEffect } from 'react';
 import { Sun, Moon, Sparkles, Flame, Menu, X } from 'lucide-react';
 import { getStudyStreak, STREAK_UPDATED_EVENT } from '../utils/streakService';
 
+export type AppView =
+  | 'overview'
+  | 'generator'
+  | 'extractor'
+  | 'summary'
+  | 'study'
+  | 'quiz'
+  | 'match'
+  | 'decks'
+  | 'ocr';
+
 interface NavbarProps {
-  currentView: 'overview' | 'generator' | 'extractor' | 'summary' | 'study' | 'quiz' | 'decks' | 'ocr';
-  onNavigate: (view: 'overview' | 'generator' | 'extractor' | 'summary' | 'study' | 'quiz' | 'decks') => void;
+  currentView: AppView;
+  onNavigate: (view: Exclude<AppView, 'ocr'>) => void;
   isDark: boolean;
   onToggleTheme: () => void;
 }
 
 const DESKTOP_NAV_ITEMS: {
-  id: 'overview' | 'extractor' | 'generator' | 'study' | 'decks';
+  id: 'overview' | 'extractor' | 'generator' | 'decks';
   label: string;
 }[] = [
   { id: 'overview', label: 'Company' },
   { id: 'extractor', label: 'OCR & Files' },
   { id: 'generator', label: 'AI Studio' },
-  { id: 'study', label: 'Flashcards' },
   { id: 'decks', label: 'Study Decks' },
 ];
 
 const MOBILE_NAV_ITEMS: {
-  id: 'overview' | 'extractor' | 'generator' | 'summary' | 'study' | 'quiz' | 'decks';
+  id: Exclude<AppView, 'ocr'>;
   label: string;
 }[] = [
   { id: 'overview', label: 'Company Overview' },
-  { id: 'extractor', label: 'Vision OCR & Files' },
+  { id: 'extractor', label: 'Vision OCR & Repair' },
   { id: 'generator', label: 'AI Synthesis Studio' },
   { id: 'summary', label: 'Summary & Mastery' },
   { id: 'study', label: '3D Flashcards' },
+  { id: 'match', label: 'Match Game' },
   { id: 'quiz', label: 'Quiz Recall' },
   { id: 'decks', label: 'Study Decks' },
 ];
@@ -56,7 +67,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     };
   }, []);
 
-  const handleNavClick = (view: 'overview' | 'generator' | 'extractor' | 'summary' | 'study' | 'quiz' | 'decks') => {
+  const handleNavClick = (view: Exclude<AppView, 'ocr'>) => {
     onNavigate(view);
     setMobileMenuOpen(false);
   };

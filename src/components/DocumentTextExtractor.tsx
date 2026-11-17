@@ -30,8 +30,25 @@ import {
   ZoomOut,
   CheckCircle2,
   RefreshCw,
+  Undo2,
+  ShieldCheck,
+  AlertTriangle,
+  Layers,
 } from 'lucide-react';
 import { AudioTranscriberModal } from './AudioTranscriberModal';
+import {
+  OcrCorrectionItem,
+  repairOcrMistakesDeterministic,
+  simulateNoisyOcrSample,
+} from '../utils/ocrCorrector';
+
+interface BatchOcrItem {
+  id: string;
+  fileName: string;
+  text: string;
+  confidence: number;
+  engine: string;
+}
 
 interface DocumentTextExtractorProps {
   onSendToGenerator: (
@@ -78,6 +95,16 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
   const [ocrStatusText, setOcrStatusText] = useState<string>('');
   const [preprocess, setPreprocess] = useState<OcrPreprocessOptions>(DEFAULT_OCR_PREPROCESS);
   const [imageZoom, setImageZoom] = useState<number>(1);
+
+  // Gemini OCR Error Correction state
+  const [isCorrecting, setIsCorrecting] = useState<boolean>(false);
+  const [preRepairSnapshot, setPreRepairSnapshot] = useState<string | null>(null);
+  const [correctionLog, setCorrectionLog] = useState<OcrCorrectionItem[]>([]);
+  const [correctionSummary, setCorrectionSummary] = useState<string>('');
+  const [correctionEngineLabel, setCorrectionEngineLabel] = useState<string>('');
+
+  // Multi-file OCR queue
+  const [batchQueue, setBatchQueue] = useState<BatchOcrItem[]>([]);
 
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [isCopied, setIsCopied] = useState<boolean>(false);
@@ -129,11 +156,29 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
       setProcessedImageUrl(result.processedImageUrl);
       setOcrConfidence(result.confidence);
       setOcrDocumentType(result.documentType);
-      setOcrEngine(
+      setCorrectionLog([]);
+      setCorrectionSummary('');
+      setPreRepairSnapshot(null);
+      const engineFriendly =
         result.engine === 'gemini-4-hydrogen-vision'
           ? 'Gemini 4 Vision OCR'
-          : 'Tesseract Neural OCR (Local)'
-      );
+          : 'Tesseract Neural OCR (Local)';
+      setOcrEngine(engineFriendly);
+      if (result.text.trim()) {
+        setBatchQueue((prev) => {
+          const filtered = prev.filter((item) => item.fileName !== (activeFileName || 'Scan'));
+          return [
+            {
+              id: `batch-${Date.now()}`,
+              fileName: activeFileName || 'Scanned_Document.png',
+              text: result.text,
+              confidence: result.confidence,
+              engine: engineFriendly,
+            },
+            ...filtered,
+          ].slice(0, 6);
+        });
+      }
       if (!result.text.trim()) {
         setError(
           'No legible characters were detected in this scan. Try toggling High-Contrast Enhancement or rotating 90° and re-running OCR.'
@@ -157,6 +202,9 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
     setError(null);
     setOcrConfidence(null);
     setOcrEngine('');
+    setCorrectionLog([]);
+    setCorrectionSummary('');
+    setPreRepairSnapshot(null);
 
     const category = classifyOcrFile(file.name, file.type);
     const cleanTitle = file.name
@@ -190,10 +238,21 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
           !textResult.text.includes('contains scanned raster images');
 
         if (hasNativeText) {
-          setExtractedText(normalizeOcrOutput(textResult.text));
+          const normalized = normalizeOcrOutput(textResult.text);
+          setExtractedText(normalized);
           setOcrConfidence(99);
           setOcrDocumentType('PDF Text Layer');
           setOcrEngine('Native PDF Extractor');
+          setBatchQueue((prev) => [
+            {
+              id: `batch-${Date.now()}`,
+              fileName: file.name,
+              text: normalized,
+              confidence: 99,
+              engine: 'Native PDF Extractor',
+            },
+            ...prev.filter((i) => i.fileName !== file.name),
+          ].slice(0, 6));
           setIsProcessing(false);
           return;
         }
@@ -213,6 +272,16 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
       setOcrConfidence(100);
       setOcrDocumentType('Structured Text Document');
       setOcrEngine('Direct File Parser');
+      setBatchQueue((prev) => [
+        {
+          id: `batch-${Date.now()}`,
+          fileName: file.name,
+          text: result.text,
+          confidence: 100,
+          engine: 'Direct File Parser',
+        },
+        ...prev.filter((i) => i.fileName !== file.name),
+      ].slice(0, 6));
     } catch (err: any) {
       console.warn('File extraction notice:', err?.message || err);
       setError(
@@ -223,20 +292,24 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      handleProcessFile(file);
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      for (let i = 0; i < files.length; i++) {
+        await handleProcessFile(files[i]);
+      }
       e.target.value = '';
     }
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) {
-      handleProcessFile(file);
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      for (let i = 0; i < files.length; i++) {
+        await handleProcessFile(files[i]);
+      }
     }
   };
 
@@ -345,6 +418,96 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
     setSourceCitation('');
     setError(null);
     setImageZoom(1);
+    setPreRepairSnapshot(null);
+    setCorrectionLog([]);
+    setCorrectionSummary('');
+  };
+
+  const handleSimulateNoisyOcr = () => {
+    const noisy = simulateNoisyOcrSample(extractedText);
+    setExtractedText(noisy);
+    setActiveFileName((prev) => prev || 'Noisy_Scan_Sample.png');
+    setActiveFileType('OCR TEST');
+    setOcrConfidence(78);
+    setOcrEngine('Raw Scan Text');
+    setCorrectionLog([]);
+    setCorrectionSummary('');
+    setPreRepairSnapshot(null);
+    setError(null);
+  };
+
+  const handleRepairOcrWithGemini = async () => {
+    if (!extractedText.trim()) return;
+    setIsCorrecting(true);
+    setError(null);
+    const originalCopy = extractedText;
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 14000);
+
+      const res = await fetch('/api/ocr/correct', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          rawText: originalCopy,
+          fileData: rawImageUrl || undefined,
+          mimeType: rawMimeType || 'image/png',
+          contextHint: sourceTitle || ocrDocumentType || '',
+        }),
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.correctedText) {
+          setPreRepairSnapshot(originalCopy);
+          setExtractedText(data.correctedText);
+          setCorrectionLog(Array.isArray(data.corrections) ? data.corrections : []);
+          setCorrectionSummary(data.summaryNote || 'OCR text verified and repaired cleanly.');
+          setCorrectionEngineLabel(
+            data.engine === 'gemini-4-hydrogen-proofreader'
+              ? 'Gemini 4 Vision Proofreader'
+              : 'AR Smart OCR Repair'
+          );
+          if (typeof data.confidenceAfter === 'number') {
+            setOcrConfidence(data.confidenceAfter);
+          }
+          setIsCorrecting(false);
+          return;
+        }
+      }
+    } catch {
+      // Seamless local fallback below
+    }
+
+    const fallback = repairOcrMistakesDeterministic(originalCopy);
+    setPreRepairSnapshot(originalCopy);
+    setExtractedText(fallback.correctedText);
+    setCorrectionLog(fallback.corrections);
+    setCorrectionSummary(fallback.summaryNote);
+    setCorrectionEngineLabel('AR Smart OCR Repair');
+    setOcrConfidence(fallback.confidenceAfter);
+    setIsCorrecting(false);
+  };
+
+  const handleUndoRepair = () => {
+    if (preRepairSnapshot === null) return;
+    setExtractedText(preRepairSnapshot);
+    setPreRepairSnapshot(null);
+    setCorrectionLog([]);
+    setCorrectionSummary('');
+  };
+
+  const handleMergeBatchQueue = () => {
+    if (batchQueue.length === 0) return;
+    const merged = [...batchQueue]
+      .reverse()
+      .map((item) => `## ${item.fileName}\n\n${item.text}`)
+      .join('\n\n---\n\n');
+    setExtractedText(merged);
+    setSourceTitle('Combined Multi-Page OCR Extract');
   };
 
   const handleSendToAi = () => {
@@ -423,6 +586,15 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
               {sample.label}
             </button>
           ))}
+          <button
+            type="button"
+            disabled={isProcessing || isCorrecting}
+            onClick={handleSimulateNoisyOcr}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50"
+          >
+            <AlertTriangle className="w-3.5 h-3.5" />
+            <span>Load Noisy Scan Text (Test Repair)</span>
+          </button>
         </div>
       </div>
 
@@ -453,6 +625,7 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
             <input
               ref={fileInputRef}
               type="file"
+              multiple
               accept="image/*,.png,.jpg,.jpeg,.webp,.bmp,.pdf,.txt,.md,.markdown,.json,.csv,.tsv,.html,.rtf"
               onChange={handleFileChange}
               className="hidden"
@@ -689,6 +862,44 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
               </div>
             </div>
           )}
+              {/* Batch Queue History */}
+          {batchQueue.length > 1 && (
+            <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  <span>Session OCR Queue ({batchQueue.length} files)</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={handleMergeBatchQueue}
+                  className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                >
+                  Merge All into Workspace
+                </button>
+              </div>
+              <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                {batchQueue.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setExtractedText(item.text);
+                      setActiveFileName(item.fileName);
+                      setOcrConfidence(item.confidence);
+                      setOcrEngine(item.engine);
+                    }}
+                    className="w-full text-left px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-950/60 hover:bg-indigo-50/70 dark:hover:bg-indigo-950/30 border border-slate-200/70 dark:border-slate-800 text-xs flex items-center justify-between gap-2 cursor-pointer"
+                  >
+                    <span className="truncate font-medium text-slate-700 dark:text-slate-300">{item.fileName}</span>
+                    <span className="font-mono text-[11px] text-emerald-600 dark:text-emerald-400 shrink-0">
+                      {item.confidence}%
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right Column: Extracted Text Workspace & Handoff */}
@@ -706,9 +917,40 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {extractedText && (
                 <>
+                  <button
+                    type="button"
+                    disabled={isCorrecting || isProcessing}
+                    onClick={handleRepairOcrWithGemini}
+                    className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                    title="Have Gemini inspect & repair OCR spelling, broken hyphens, formulas, and symbol errors"
+                  >
+                    {isCorrecting ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Repairing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        <span>AI Repair OCR Mistakes</span>
+                      </>
+                    )}
+                  </button>
+
+                  {preRepairSnapshot !== null && (
+                    <button
+                      type="button"
+                      onClick={handleUndoRepair}
+                      className="px-2.5 py-1 text-xs font-medium rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 hover:bg-amber-100 transition-colors flex items-center gap-1 cursor-pointer"
+                    >
+                      <Undo2 className="w-3.5 h-3.5" />
+                      <span>Undo</span>
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={handleCleanWhitespace}
@@ -749,6 +991,41 @@ export const DocumentTextExtractor: React.FC<DocumentTextExtractorProps> = ({
               )}
             </div>
           </div>
+
+          {/* Gemini OCR Correction Audit Drawer */}
+          {(correctionSummary || correctionLog.length > 0) && (
+            <div className="p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-900/70 bg-emerald-50/50 dark:bg-emerald-950/25 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-1.5 font-semibold text-emerald-800 dark:text-emerald-300">
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>{correctionSummary}</span>
+                </div>
+                {correctionEngineLabel && (
+                  <span className="text-[11px] font-mono text-emerald-700/80 dark:text-emerald-400/80">
+                    {correctionEngineLabel}
+                  </span>
+                )}
+              </div>
+
+              {correctionLog.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto pt-1">
+                  {correctionLog.map((item) => (
+                    <div
+                      key={item.id}
+                      className="p-2 rounded-lg bg-white/90 dark:bg-slate-900/90 border border-emerald-200/70 dark:border-emerald-900/60 text-[11px] space-y-0.5"
+                    >
+                      <div className="font-mono flex items-center gap-1.5 flex-wrap">
+                        <span className="line-through text-red-600 dark:text-red-400">{item.original}</span>
+                        <span aria-hidden="true" className="text-slate-400">→</span>
+                        <span className="font-bold text-emerald-700 dark:text-emerald-300">{item.corrected}</span>
+                      </div>
+                      <div className="text-slate-500 dark:text-slate-400">{item.reason}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Textarea */}
           <div className="relative flex-1 min-h-[340px]">

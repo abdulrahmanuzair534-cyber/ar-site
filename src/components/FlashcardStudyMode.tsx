@@ -32,7 +32,12 @@ import {
   X,
   Headphones,
   Layers,
+  ArrowLeftRight,
+  Edit3,
+  Keyboard,
+  Clock,
 } from 'lucide-react';
+import { countDueCards, isCardDueForReview } from '../utils/studyEnhancements';
 
 interface FlashcardStudyModeProps {
   cards: Flashcard[];
@@ -66,8 +71,14 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
   const [transitionKey, setTransitionKey] = useState<number>(0);
   const [tilt, setTilt] = useState<CardTiltState>(DEFAULT_CARD_TILT);
   const [notification, setNotification] = useState<string | null>(null);
+  const [reverseMode, setReverseMode] = useState<boolean>(false);
+  const [dueOnlyMode, setDueOnlyMode] = useState<boolean>(false);
+  const [showShortcuts, setShowShortcuts] = useState<boolean>(false);
+  const [editingCard, setEditingCard] = useState<Flashcard | null>(null);
   const notificationTimerRef = useRef<any>(null);
   const cardStageRef = useRef<HTMLDivElement | null>(null);
+
+  const dueCount = countDueCards(initialCards);
 
   const showNotification = (msg: string) => {
     setNotification(msg);
@@ -79,15 +90,36 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
 
   const currentCard = cards[currentIndex] || cards[0];
 
+  const prevDueOnlyRef = useRef(dueOnlyMode);
+  const prevDeckSigRef = useRef(initialCards.map((c) => c.id).join('|'));
+
   useEffect(() => {
     originalCardsRef.current = initialCards;
-    setCards(initialCards);
+    const nextSig = initialCards.map((c) => c.id).join('|');
+    const deckStructureChanged = nextSig !== prevDeckSigRef.current;
+    const dueFilterChanged = dueOnlyMode !== prevDueOnlyRef.current;
+
+    if (!deckStructureChanged && !dueFilterChanged) {
+      // Sync updated card fields (e.g. box, nextReviewDate, edited text) without resetting index or triggering exit flicker
+      setCards((prev) =>
+        prev.map((c) => initialCards.find((ic) => ic.id === c.id) || c)
+      );
+      return;
+    }
+
+    prevDeckSigRef.current = nextSig;
+    prevDueOnlyRef.current = dueOnlyMode;
+
+    const activeSubset = dueOnlyMode
+      ? initialCards.filter((c) => isCardDueForReview(c))
+      : initialCards;
+    setCards(activeSubset.length > 0 ? activeSubset : initialCards);
     setCurrentIndex(0);
     setIsFlipped(false);
     setIsShuffled(false);
     setSwapDirection('next');
     setTransitionKey((k) => k + 1);
-  }, [initialCards]);
+  }, [initialCards, dueOnlyMode]);
 
   useEffect(() => {
     speech.setListener((speaking) => setIsSpeaking(speaking));
@@ -208,7 +240,11 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
       const newCards = [...cards];
       newCards[currentIndex] = updatedCard;
       setCards(newCards);
-      onUpdateCards(newCards);
+      const mergedFullDeck = originalCardsRef.current.map((c) =>
+        c.id === updatedCard.id ? updatedCard : c
+      );
+      originalCardsRef.current = mergedFullDeck;
+      onUpdateCards(mergedFullDeck);
 
       setSessionRatings((prev) => ({
         ...prev,
@@ -220,6 +256,19 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
     },
     [currentCard, cards, currentIndex, onUpdateCards, handleNext]
   );
+
+  const handleSaveEditedCard = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCard) return;
+    const updatedDeck = originalCardsRef.current.map((c) =>
+      c.id === editingCard.id ? editingCard : c
+    );
+    originalCardsRef.current = updatedDeck;
+    setCards((prev) => prev.map((c) => (c.id === editingCard.id ? editingCard : c)));
+    onUpdateCards(updatedDeck);
+    setEditingCard(null);
+    showNotification('Flashcard updated and saved.');
+  };
 
   const handleShuffle = useCallback(() => {
     speech.stop();
@@ -278,8 +327,8 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
   // Keyboard navigation shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Avoid firing when user is typing in an input
-      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
+      // Avoid firing when user is typing in an input or modal is open
+      if (editingCard || ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) return;
 
       if (e.code === 'Space' || e.code === 'Enter') {
         e.preventDefault();
@@ -533,6 +582,67 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
 
           <button
             type="button"
+            onClick={() => {
+              const next = !reverseMode;
+              setReverseMode(next);
+              setIsFlipped(false);
+              showNotification(next ? 'Reverse Mode: Answer on front -> Recall Question' : 'Standard Mode: Question on front');
+            }}
+            aria-pressed={reverseMode}
+            title="Flip Q->A to A->Q study direction"
+            className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-semibold flex items-center gap-1 transition-colors cursor-pointer ${
+              reverseMode
+                ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'
+                : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+            }`}
+          >
+            <ArrowLeftRight className="w-3 h-3" />
+            <span>{reverseMode ? 'A → Q' : 'Q → A'}</span>
+          </button>
+
+          {dueCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setDueOnlyMode((p) => !p)}
+              aria-pressed={dueOnlyMode}
+              title="Filter deck to cards currently due for spaced review"
+              className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-semibold flex items-center gap-1 transition-colors cursor-pointer ${
+                dueOnlyMode
+                  ? 'border-amber-400 bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300'
+                  : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+              }`}
+            >
+              <Clock className="w-3 h-3" />
+              <span>Due ({dueCount})</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setEditingCard({ ...currentCard })}
+            aria-label="Edit current flashcard"
+            title="Edit card content & mnemonic"
+            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 transition-colors cursor-pointer"
+          >
+            <Edit3 className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowShortcuts((p) => !p)}
+            aria-label="Toggle keyboard shortcuts"
+            title="Keyboard shortcuts"
+            className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+              showShortcuts
+                ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950 text-indigo-600'
+                : 'border-slate-200 dark:border-slate-700 text-slate-500 hover:text-indigo-600 dark:text-slate-400'
+            }`}
+          >
+            <Keyboard className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            type="button"
             onClick={() => toggleStar(currentCard.id)}
             aria-label={isStarred ? 'Unstar card' : 'Star for review'}
             title={isStarred ? 'Unstar card' : 'Star for review'}
@@ -544,6 +654,25 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
           </button>
         </div>
       </div>
+
+      {showShortcuts && (
+        <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-4 text-slate-600 dark:text-slate-300">
+            <span><kbd className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-[11px]">Space</kbd> Flip</span>
+            <span><kbd className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-[11px]">← / →</kbd> Prev / Next</span>
+            <span><kbd className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-[11px]">S</kbd> Shuffle</span>
+            <span><kbd className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-[11px]">R</kbd> Read Aloud</span>
+            <span><kbd className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-[11px]">1–4</kbd> Rate Card</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowShortcuts(false)}
+            className="text-slate-400 hover:text-slate-700 cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Notification toast banner */}
       <AnimatePresence>
@@ -591,7 +720,9 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
 
       {/* 3D Interactive Flashcard Stage with Deck Depth Stack */}
       <div
-        className="perspective-1400 relative h-[410px] sm:h-[430px] w-full pb-4"
+        className={`perspective-1400 relative w-full pb-4 ${
+          currentCard.imageUrl ? 'h-[470px] sm:h-[490px]' : 'h-[410px] sm:h-[430px]'
+        }`}
         data-testid="flashcard-3d-stage"
         data-flipped={isFlipped ? 'true' : 'false'}
         data-speaking={speakingTarget || 'none'}
@@ -630,7 +761,9 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
             exit={swapVariants.exit}
             transition={{ type: 'spring', stiffness: 260, damping: 25, mass: 0.85 }}
             style={{ transformStyle: 'preserve-3d' }}
-            className="relative w-full h-[394px] sm:h-[414px]"
+            className={`relative w-full ${
+              currentCard.imageUrl ? 'h-[454px] sm:h-[474px]' : 'h-[394px] sm:h-[414px]'
+            }`}
           >
             {/* Interactive 3D Pointer Tilt Container */}
             <motion.div
@@ -728,11 +861,11 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
                       </div>
 
                       {currentCard.imageUrl && (
-                        <div className="mb-4 max-h-48 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-950 flex flex-col items-center justify-center p-2">
+                        <div className="mb-3 max-h-40 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-950 flex flex-col items-center justify-center p-2">
                           <img
                             src={currentCard.imageUrl}
                             alt={currentCard.imageCaption || 'Card visual diagram'}
-                            className="max-h-40 w-auto object-contain rounded"
+                            className="max-h-32 w-auto object-contain rounded"
                           />
                           {currentCard.imageCaption && (
                             <span className="text-[10px] text-slate-400 mt-1 truncate">
@@ -743,7 +876,7 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
                       )}
 
                       <h3 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white leading-snug font-display">
-                        {currentCard.question}
+                        {reverseMode ? currentCard.answer : currentCard.question}
                       </h3>
 
                       {showHint && currentCard.mnemonic && (
@@ -856,7 +989,7 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
                     )}
 
                     <p className="text-base sm:text-lg font-medium text-slate-900 dark:text-white leading-relaxed mb-4">
-                      {currentCard.answer}
+                      {reverseMode ? currentCard.question : currentCard.answer}
                     </p>
 
                     {currentCard.mnemonic && (
@@ -982,6 +1115,134 @@ export const FlashcardStudyMode: React.FC<FlashcardStudyModeProps> = ({
             <span>Skip</span>
             <ChevronRight className="w-4 h-4" />
           </button>
+        </div>
+      )}
+
+      {/* Inline Flashcard Editor Modal */}
+      {editingCard && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <form
+            onSubmit={handleSaveEditedCard}
+            className="w-full max-w-lg rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto"
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white font-display">
+                Edit Flashcard &amp; Visual Diagram
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingCard(null)}
+                className="text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Front Question
+              </label>
+              <textarea
+                rows={2}
+                required
+                value={editingCard.question}
+                onChange={(e) => setEditingCard({ ...editingCard, question: e.target.value })}
+                className="w-full p-2.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Back Answer
+              </label>
+              <textarea
+                rows={3}
+                required
+                value={editingCard.answer}
+                onChange={(e) => setEditingCard({ ...editingCard, answer: e.target.value })}
+                className="w-full p-2.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Category
+                </label>
+                <input
+                  type="text"
+                  value={editingCard.category}
+                  onChange={(e) => setEditingCard({ ...editingCard, category: e.target.value })}
+                  className="w-full p-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Difficulty
+                </label>
+                <select
+                  value={editingCard.difficulty}
+                  onChange={(e) =>
+                    setEditingCard({
+                      ...editingCard,
+                      difficulty: e.target.value as 'easy' | 'medium' | 'hard',
+                    })
+                  }
+                  className="w-full p-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                >
+                  <option value="easy">Easy</option>
+                  <option value="medium">Medium</option>
+                  <option value="hard">Hard</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Memory Anchor (Mnemonic)
+              </label>
+              <input
+                type="text"
+                value={editingCard.mnemonic}
+                onChange={(e) => setEditingCard({ ...editingCard, mnemonic: e.target.value })}
+                className="w-full p-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+              />
+            </div>
+
+            {editingCard.imageUrl && (
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 space-y-2">
+                <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Attached Visual Diagram
+                </div>
+                <div className="relative rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-950 p-1.5 flex items-center justify-center">
+                  <img src={editingCard.imageUrl} alt="Card diagram" className="max-h-32 object-contain" />
+                  <button
+                    type="button"
+                    onClick={() => setEditingCard({ ...editingCard, imageUrl: undefined, imageCaption: undefined })}
+                    className="absolute top-1.5 right-1.5 px-2 py-0.5 rounded bg-red-600 text-white text-[10px] font-semibold cursor-pointer"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setEditingCard(null)}
+                className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold cursor-pointer"
+              >
+                Save Changes
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>

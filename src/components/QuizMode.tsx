@@ -3,7 +3,16 @@ import { Flashcard, QuizQuestion } from '../types/index';
 import { generateQuizFromFlashcards } from '../utils/retentionLogic';
 import { recordStudySession } from '../utils/streakService';
 import { recordQuizAttempt } from '../utils/quizProgressService';
-import { CheckCircle2, XCircle, HelpCircle, RotateCcw, ArrowRight, Award, ChevronLeft } from 'lucide-react';
+import {
+  CheckCircle2,
+  XCircle,
+  RotateCcw,
+  ArrowRight,
+  Award,
+  ChevronLeft,
+  Timer,
+  Flame,
+} from 'lucide-react';
 
 interface QuizModeProps {
   deckId?: string;
@@ -25,6 +34,10 @@ export const QuizMode: React.FC<QuizModeProps> = ({
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [isAnswered, setIsAnswered] = useState(false);
   const [score, setScore] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [bestStreak, setBestStreak] = useState(0);
+  const [timedMode, setTimedMode] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(60);
   const [userAnswers, setUserAnswers] = useState<Record<number, { selected: string; correct: boolean }>>({});
   const [isCompleted, setIsCompleted] = useState(false);
 
@@ -36,10 +49,31 @@ export const QuizMode: React.FC<QuizModeProps> = ({
       setSelectedOption(null);
       setIsAnswered(false);
       setScore(0);
+      setStreak(0);
+      setBestStreak(0);
+      setSecondsLeft(60);
       setUserAnswers({});
       setIsCompleted(false);
     }
   }, [cards]);
+
+  useEffect(() => {
+    if (!timedMode || isCompleted) return;
+    const timer = setInterval(() => {
+      setSecondsLeft((prev) => {
+        if (prev <= 1) {
+          recordStudySession();
+          if (deckId) {
+            recordQuizAttempt(deckId, score, questions.length);
+          }
+          setIsCompleted(true);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [timedMode, isCompleted, deckId, score, questions.length]);
 
   if (!cards || cards.length < 2) {
     return (
@@ -60,13 +94,20 @@ export const QuizMode: React.FC<QuizModeProps> = ({
   const currentQ = questions[currentIndex];
 
   const handleSelectOption = (opt: string) => {
-    if (isAnswered) return;
+    if (isAnswered || !currentQ) return;
     setSelectedOption(opt);
     setIsAnswered(true);
 
     const isCorrect = opt === currentQ.correctAnswer;
     if (isCorrect) {
       setScore((prev) => prev + 1);
+      setStreak((s) => {
+        const nextS = s + 1;
+        setBestStreak((b) => Math.max(b, nextS));
+        return nextS;
+      });
+    } else {
+      setStreak(0);
     }
 
     setUserAnswers((prev) => ({
@@ -89,13 +130,41 @@ export const QuizMode: React.FC<QuizModeProps> = ({
     }
   };
 
-  const handleRestart = () => {
-    const generated = generateQuizFromFlashcards(cards);
-    setQuestions(generated);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (isCompleted || !currentQ) return;
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
+      if (!isAnswered && ['1', '2', '3', '4'].includes(e.key)) {
+        const idx = Number(e.key) - 1;
+        if (currentQ.options[idx]) {
+          e.preventDefault();
+          handleSelectOption(currentQ.options[idx]);
+        }
+      } else if (isAnswered && (e.key === 'Enter' || e.code === 'Space')) {
+        e.preventDefault();
+        handleNext();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  const handleRestart = (onlyMissed = false) => {
+    let sourceQuestions: QuizQuestion[];
+    if (onlyMissed) {
+      const missed = questions.filter((_, idx) => !userAnswers[idx]?.correct);
+      sourceQuestions = missed.length > 0 ? missed : generateQuizFromFlashcards(cards);
+    } else {
+      sourceQuestions = generateQuizFromFlashcards(cards);
+    }
+    setQuestions(sourceQuestions);
     setCurrentIndex(0);
     setSelectedOption(null);
     setIsAnswered(false);
     setScore(0);
+    setStreak(0);
+    setBestStreak(0);
+    setSecondsLeft(60);
     setUserAnswers({});
     setIsCompleted(false);
   };
@@ -122,7 +191,7 @@ export const QuizMode: React.FC<QuizModeProps> = ({
               {percentage}%
             </div>
             <div className="text-xs text-slate-600 dark:text-slate-400 mt-1 font-medium">
-              You scored {score} out of {questions.length} questions correctly.
+              You scored {score} out of {questions.length} questions correctly · Best Streak: {bestStreak}x
             </div>
           </div>
 
@@ -161,16 +230,28 @@ export const QuizMode: React.FC<QuizModeProps> = ({
           )}
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+            {score < questions.length && (
+              <button
+                type="button"
+                onClick={() => handleRestart(true)}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 hover:bg-amber-100 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Retry Missed Only ({questions.length - score})</span>
+              </button>
+            )}
             <button
-              onClick={handleRestart}
-              className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-semibold flex items-center justify-center gap-1.5"
+              type="button"
+              onClick={() => handleRestart(false)}
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              <span>Retry Quiz</span>
+              <span>Retry Full Quiz</span>
             </button>
             <button
+              type="button"
               onClick={onBackToStudy}
-              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm"
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm cursor-pointer"
             >
               Study Cards in 3D Mode
             </button>
@@ -187,17 +268,45 @@ export const QuizMode: React.FC<QuizModeProps> = ({
   return (
     <div className="max-w-2xl mx-auto py-8 px-4 sm:px-6 space-y-6">
       {/* Top Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <button
+          type="button"
           onClick={onBackToSummary}
-          className="text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:text-slate-300 flex items-center gap-1"
+          className="text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:text-slate-300 flex items-center gap-1 cursor-pointer"
         >
           <ChevronLeft className="w-4 h-4" />
           <span>Exit to Summary</span>
         </button>
 
-        <div className="text-xs font-mono font-semibold text-slate-600 dark:text-slate-300">
-          Score: {score} / {currentIndex + (isAnswered ? 1 : 0)}
+        <div className="flex items-center gap-3 text-xs font-mono tabular-nums">
+          <button
+            type="button"
+            onClick={() => {
+              setTimedMode((t) => !t);
+              setSecondsLeft(60);
+            }}
+            className={`px-2.5 py-1 rounded-lg border font-sans font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+              timedMode
+                ? secondsLeft <= 15
+                  ? 'border-red-400 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300'
+                  : 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'
+                : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Timer className="w-3.5 h-3.5" />
+            <span>{timedMode ? `${secondsLeft}s Sprint` : '60s Sprint Off'}</span>
+          </button>
+
+          {streak > 0 && (
+            <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-bold">
+              <Flame className="w-3.5 h-3.5" />
+              <span>{streak}x</span>
+            </span>
+          )}
+
+          <div className="font-semibold text-slate-600 dark:text-slate-300">
+            Score: {score} / {currentIndex + (isAnswered ? 1 : 0)}
+          </div>
         </div>
       </div>
 

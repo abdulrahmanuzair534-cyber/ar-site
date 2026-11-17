@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { SummaryDocument, SourceReference } from '../types/index';
+import { SummaryDocument, SourceReference, NotebookNote, Flashcard } from '../types/index';
 import { speech } from '../utils/speech';
 import { DeckMasteryChart } from './DeckMasteryChart';
 import {
@@ -19,20 +19,27 @@ import {
   Image as ImageIcon,
   Plus,
   X,
+  Gamepad2,
+  StickyNote,
+  Trash2,
 } from 'lucide-react';
 
 interface SummaryViewerProps {
   document: SummaryDocument;
   onStartStudy: () => void;
   onStartQuiz: () => void;
+  onStartMatch?: () => void;
   onOpenExport: () => void;
   onUpdateDocument?: (updatedDoc: SummaryDocument) => void;
 }
+
+const NOTES_STORAGE_KEY = 'arsite_deck_notes_v1';
 
 export const SummaryViewer: React.FC<SummaryViewerProps> = ({
   document,
   onStartStudy,
   onStartQuiz,
+  onStartMatch,
   onOpenExport,
   onUpdateDocument,
 }) => {
@@ -46,6 +53,86 @@ export const SummaryViewer: React.FC<SummaryViewerProps> = ({
   const [newSourceAuthor, setNewSourceAuthor] = useState('');
   const [newSourceCitation, setNewSourceCitation] = useState('');
   const [newSourceUrl, setNewSourceUrl] = useState('');
+
+  // Inline + Add Flashcard state
+  const [isAddingCard, setIsAddingCard] = useState(false);
+  const [newCardQuestion, setNewCardQuestion] = useState('');
+  const [newCardAnswer, setNewCardAnswer] = useState('');
+  const [newCardMnemonic, setNewCardMnemonic] = useState('');
+
+  // Personal Study Scratchpad state persisted per deck
+  const [notes, setNotes] = useState<NotebookNote[]>(() => {
+    try {
+      const raw = localStorage.getItem(NOTES_STORAGE_KEY);
+      const map = raw ? JSON.parse(raw) : {};
+      return Array.isArray(map?.[document.id]) ? map[document.id] : [];
+    } catch {
+      return [];
+    }
+  });
+  const [noteTitle, setNoteTitle] = useState('');
+  const [noteContent, setNoteContent] = useState('');
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(NOTES_STORAGE_KEY);
+      const map = raw ? JSON.parse(raw) : {};
+      setNotes(Array.isArray(map?.[document.id]) ? map[document.id] : []);
+    } catch {
+      setNotes([]);
+    }
+  }, [document.id]);
+
+  const persistNotes = (updatedNotes: NotebookNote[]) => {
+    setNotes(updatedNotes);
+    try {
+      const raw = localStorage.getItem(NOTES_STORAGE_KEY);
+      const map = raw ? JSON.parse(raw) : {};
+      map[document.id] = updatedNotes;
+      localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(map));
+    } catch {
+      // ignore quota failures
+    }
+  };
+
+  const handleAddNote = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!noteContent.trim()) return;
+    const item: NotebookNote = {
+      id: `note-${Date.now()}`,
+      title: noteTitle.trim() || 'Study Note',
+      content: noteContent.trim(),
+      createdAt: new Date().toISOString(),
+    };
+    persistNotes([item, ...notes]);
+    setNoteTitle('');
+    setNoteContent('');
+  };
+
+  const handleAddFlashcard = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCardQuestion.trim() || !newCardAnswer.trim()) return;
+    const newCard: Flashcard = {
+      id: `fc-custom-${Date.now()}`,
+      question: newCardQuestion.trim(),
+      answer: newCardAnswer.trim(),
+      mnemonic: newCardMnemonic.trim(),
+      category: 'Custom Note',
+      difficulty: 'medium',
+      box: 1,
+      nextReviewDate: new Date().toISOString(),
+      reviewCount: 0,
+      correctCount: 0,
+    };
+    onUpdateDocument?.({
+      ...document,
+      flashcards: [...document.flashcards, newCard],
+    });
+    setNewCardQuestion('');
+    setNewCardAnswer('');
+    setNewCardMnemonic('');
+    setIsAddingCard(false);
+  };
 
   useEffect(() => {
     speech.setListener((speaking) => setIsSpeaking(speaking));
@@ -142,24 +229,38 @@ export const SummaryViewer: React.FC<SummaryViewerProps> = ({
             </button>
 
             <button
+              type="button"
               onClick={onOpenExport}
-              className="p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-medium flex items-center gap-1.5 transition-colors"
+              className="p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
             >
               <Download className="w-4 h-4" />
               <span>Export</span>
             </button>
 
+            {onStartMatch && (
+              <button
+                type="button"
+                onClick={onStartMatch}
+                className="px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-indigo-400 text-slate-700 dark:text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Gamepad2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <span>Match Game</span>
+              </button>
+            )}
+
             <button
+              type="button"
               onClick={onStartQuiz}
-              className="px-3.5 py-2 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+              className="px-3.5 py-2 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
             >
               <HelpCircle className="w-4 h-4" />
               <span>Take Quiz</span>
             </button>
 
             <button
+              type="button"
               onClick={onStartStudy}
-              className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-colors"
+              className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
             >
               <Layers className="w-4 h-4" />
               <span>Study Flashcards</span>
@@ -464,21 +565,145 @@ export const SummaryViewer: React.FC<SummaryViewerProps> = ({
         </section>
       )}
 
+      {/* Personal Study Scratchpad / Cornell Notes */}
+      <section className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <StickyNote className="w-4 h-4 text-amber-500" />
+            <h2 className="text-sm font-bold text-slate-900 dark:text-white font-display">
+              Personal Study Scratchpad ({notes.length})
+            </h2>
+          </div>
+          <span className="text-[11px] text-slate-400">Saved automatically per deck</span>
+        </div>
+
+        <form onSubmit={handleAddNote} className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+          <input
+            type="text"
+            value={noteTitle}
+            onChange={(e) => setNoteTitle(e.target.value)}
+            placeholder="Heading / Concept"
+            className="sm:col-span-4 p-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+          />
+          <input
+            type="text"
+            value={noteContent}
+            onChange={(e) => setNoteContent(e.target.value)}
+            placeholder="Write a reflection, mnemonic, or exam reminder..."
+            className="sm:col-span-6 p-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+          />
+          <button
+            type="submit"
+            disabled={!noteContent.trim()}
+            className="sm:col-span-2 px-3 py-2 rounded-lg bg-slate-900 dark:bg-indigo-600 hover:bg-slate-800 dark:hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer"
+          >
+            Add Note
+          </button>
+        </form>
+
+        {notes.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+            {notes.map((n) => (
+              <div
+                key={n.id}
+                className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 flex items-start justify-between gap-2 text-xs"
+              >
+                <div className="space-y-1">
+                  <div className="font-semibold text-slate-900 dark:text-slate-100">{n.title}</div>
+                  <div className="text-slate-600 dark:text-slate-300 leading-relaxed">{n.content}</div>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Delete study note"
+                  onClick={() => persistNotes(notes.filter((x) => x.id !== n.id))}
+                  className="text-slate-400 hover:text-red-500 p-1 cursor-pointer shrink-0"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
       {/* Flashcard Quick Preview Accordion */}
       {document.flashcards && document.flashcards.length > 0 && (
         <section className="space-y-3 pt-4 border-t border-slate-200 dark:border-slate-800">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-bold text-slate-900 dark:text-white font-display">
               Flashcard Deck Preview ({document.flashcards.length} cards)
             </h2>
-            <button
-              onClick={onStartStudy}
-              className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
-            >
-              <span>Launch 3D Study Mode</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+            <div className="flex items-center gap-3">
+              {onUpdateDocument && (
+                <button
+                  type="button"
+                  onClick={() => setIsAddingCard((p) => !p)}
+                  className="text-xs font-semibold text-slate-700 dark:text-slate-300 hover:text-indigo-600 flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Card</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onStartStudy}
+                className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <span>Launch 3D Study Mode</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
+
+          {isAddingCard && (
+            <form
+              onSubmit={handleAddFlashcard}
+              className="p-4 rounded-xl border border-indigo-200 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20 space-y-2.5"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <input
+                  type="text"
+                  required
+                  placeholder="Card Question *"
+                  value={newCardQuestion}
+                  onChange={(e) => setNewCardQuestion(e.target.value)}
+                  className="p-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                />
+                <input
+                  type="text"
+                  required
+                  placeholder="Card Answer *"
+                  value={newCardAnswer}
+                  onChange={(e) => setNewCardAnswer(e.target.value)}
+                  className="p-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                />
+              </div>
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="Optional Memory Anchor (Mnemonic)"
+                  value={newCardMnemonic}
+                  onChange={(e) => setNewCardMnemonic(e.target.value)}
+                  className="flex-1 p-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                />
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingCard(false)}
+                    className="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold cursor-pointer"
+                  >
+                    Save Card
+                  </button>
+                </div>
+              </div>
+            </form>
+          )}
 
           <div className="space-y-2">
             {document.flashcards.map((card, idx) => {

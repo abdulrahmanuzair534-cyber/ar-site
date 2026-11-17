@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { SummaryDocument, Flashcard } from './types/index';
 import { SAMPLE_DECKS } from './data/sampleDecks';
-import { Navbar } from './components/Navbar';
+import { Navbar, AppView } from './components/Navbar';
 import { EnterpriseOverview } from './components/EnterpriseOverview';
 import { GeneratorForm } from './components/GeneratorForm';
 import { SummaryViewer } from './components/SummaryViewer';
@@ -11,6 +11,7 @@ import { DeckList } from './components/DeckList';
 import { ExportModal } from './components/ExportModal';
 import { DocumentTextExtractor } from './components/DocumentTextExtractor';
 import { GeminiChatbot } from './components/GeminiChatbot';
+import { MatchGameMode } from './components/MatchGameMode';
 
 const LOCAL_STORAGE_KEY = 'arsite_study_decks_v1';
 const THEME_STORAGE_KEY = 'arsite_theme_mode';
@@ -55,12 +56,12 @@ export default function App() {
     return SAMPLE_DECKS[0]?.id || '';
   });
 
-  const [currentView, setCurrentView] = useState<'overview' | 'generator' | 'extractor' | 'summary' | 'study' | 'quiz' | 'decks' | 'ocr'>(() => {
+  const [currentView, setCurrentView] = useState<AppView>(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const autostart = urlParams.get('autostart');
     const view = urlParams.get('view');
-    if (view && ['overview', 'generator', 'extractor', 'ocr', 'summary', 'study', 'quiz', 'decks'].includes(view)) {
-      return (view === 'ocr' ? 'extractor' : view) as any;
+    if (view && ['overview', 'generator', 'extractor', 'ocr', 'summary', 'study', 'quiz', 'match', 'decks'].includes(view)) {
+      return (view === 'ocr' ? 'extractor' : view) as AppView;
     }
     if (autostart === '1') {
       return 'summary';
@@ -135,9 +136,16 @@ export default function App() {
     }
   };
 
-  const handleSelectDeck = (deck: SummaryDocument, view: 'summary' | 'study' | 'quiz') => {
+  const handleSelectDeck = (deck: SummaryDocument, view: 'summary' | 'study' | 'quiz' | 'match') => {
     setCurrentDeckId(deck.id);
     setCurrentView(view);
+  };
+
+  const handleImportDecks = (imported: SummaryDocument[]) => {
+    setDecks((prev) => [...imported, ...prev]);
+    if (imported[0]) {
+      setCurrentDeckId(imported[0].id);
+    }
   };
 
   return (
@@ -193,6 +201,7 @@ export default function App() {
             document={activeDeck}
             onStartStudy={() => setCurrentView('study')}
             onStartQuiz={() => setCurrentView('quiz')}
+            onStartMatch={() => setCurrentView('match')}
             onOpenExport={() => setIsExportOpen(true)}
             onUpdateDocument={(updated) => {
               setDecks((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
@@ -220,11 +229,20 @@ export default function App() {
           />
         )}
 
+        {currentView === 'match' && activeDeck && (
+          <MatchGameMode
+            document={activeDeck}
+            onBackToSummary={() => setCurrentView('summary')}
+            onStartStudy={() => setCurrentView('study')}
+          />
+        )}
+
         {currentView === 'decks' && (
           <DeckList
             decks={decks}
             onSelectDeck={handleSelectDeck}
             onDeleteDeck={handleDeleteDeck}
+            onImportDecks={handleImportDecks}
             onCreateNew={() => setCurrentView('generator')}
           />
         )}

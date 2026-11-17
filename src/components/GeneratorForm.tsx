@@ -269,27 +269,18 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
           ]
         : [];
 
+      const resolvedCoverUrl = attachedImageUrl || data.coverImageUrl;
+
       const enrichedDoc: SummaryDocument = {
         ...data,
         sources: enrichedSources,
-        coverImageUrl: attachedImageUrl || data.coverImageUrl,
-        flashcards: (data.flashcards || []).map((card: any, idx: number) => {
-          if (idx === 0 && attachedImageUrl && !card.imageUrl) {
-            return {
-              ...card,
-              imageUrl: attachedImageUrl,
-              sourceReference: sourceTitle.trim()
-                ? `${sourceTitle.trim()}${sourceCitation ? ` (${sourceCitation})` : ''}`
-                : card.sourceReference,
-            };
-          }
-          return {
-            ...card,
-            sourceReference: sourceTitle.trim()
-              ? `${sourceTitle.trim()}${sourceCitation ? ` (${sourceCitation})` : ''}`
-              : card.sourceReference,
-          };
-        }),
+        coverImageUrl: resolvedCoverUrl,
+        flashcards: (data.flashcards || []).map((card: any) => ({
+          ...card,
+          sourceReference: sourceTitle.trim()
+            ? `${sourceTitle.trim()}${sourceCitation ? ` (${sourceCitation})` : ''}`
+            : card.sourceReference,
+        })),
       };
 
       recordStudySession();
